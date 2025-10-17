@@ -13,16 +13,25 @@ WSL2 + Docker Desktop + NVIDIA GPU 환경에서 재현 가능하도록 구성되
 - **Windows 11 + WSL2** (Ubuntu 20.04/22.04)
 - **Docker Desktop** (Settings → Resources → **WSL Integration** 에서 Ubuntu ON)
 - **NVIDIA GPU & Driver** (컨테이너에서 GPU가 보여야 함)
-- (권장) `git`, `make`
 
-확인:
-```bash
-nvidia-smi
-```
 
 ---
+## 1) 폴더 구조
 
-## 1) 설치
+```
+project/
+  imatch/            # 라이브러리 모듈들
+  runCLI.py          # 매칭 실행기 (콘솔 진입점)
+  visualize.py       # 시각화 스크립트
+Dockerfile
+docker-compose.yml
+requirements.txt
+.env.example         # ← 이걸 복사해 .env 작성
+```
+---
+
+
+## 2) 설치
 
 ```bash
 # 1) 레포 받기
@@ -60,18 +69,25 @@ docker compose exec pair bash -lc 'echo REPO_DIR=$REPO_DIR IMG_ROOT=$IMG_ROOT; l
 
 ---
 
-## 2) 스모크 테스트
+## 3) 테스트
 
 ```bash
 # 예시: 400.0100 ↔ 200.0100 한 건만, vitl16 가중치
-docker compose exec pair run-matching \
-  --weights vitl16 \
-  -a 400.0100 -b 200.0100
+docker compose exec pair run-matching --weights vitl16 -a 400.0100 -b 200.0100
 
 # 시각화 (Affine RANSAC, 포인트 표시)
-docker compose exec pair run-visualize \
-  --ransac affine --draw-points --alpha 180 --linewidth 3
+docker compose exec pair run-visualize --ransac affine --draw-points --alpha 160 --linewidth 3
 ```
+
+### 테스트 결과 (예: A400.0100 ↔ B200.0100, vitl16)
+
+**매칭 시각화 (PNG)**  
+![vitl16 A400.0100 vs B200.0100](docs/examples/vitl16_400_0100/matches_vitl16_A400.0100_B200.0100.png)
+
+**매칭 결과 (JSON)**  
+
+[(JSON)](docs/examples/vitl16_400_0100/matches_vitl16_A400.0100_B200.0100.json)
+
 
 생성 파일 위치:
 
@@ -81,7 +97,7 @@ docker compose exec pair run-visualize \
 
 ---
 
-## 3) 대규모 실행 (All-vs-All / 여러 가중치)
+## 4) 대규모 실행 (All-vs-All / 여러 가중치)
 
 ```bash
 # 전체 이미지 × 전체 이미지, 모든 가중치
@@ -96,7 +112,7 @@ docker compose exec pair run-matching --weights vitl16 cxSmall vitl16sat
 
 ---
 
-## 4) 하이퍼파라미터 / 옵션
+## 5) 하이퍼파라미터 / 옵션
 
 **매칭(run-matching)**
 
@@ -115,10 +131,7 @@ docker compose exec pair run-matching --weights vitl16 cxSmall vitl16sat
 
 ---
 
-## 5) 트러블슈팅(FAQ)
-
-* **hubconf.py를 못 찾음**
-  `.env`의 `CODE_HOST`는 **hubconf.py가 있는 리포 루트**여야 함 → 컨테이너 내부 `REPO_DIR`(`/workspace/dinov3`)에서 `ls -al` 했을 때 `hubconf.py`가 보여야 함.
+## 6) 트러블슈팅(FAQ)
 
 * **No images matched under …**
   `.env`의 `IMG_ROOT`가 실제 이미지 루트인지 확인.
@@ -137,18 +150,5 @@ docker compose exec pair run-matching --weights vitl16 cxSmall vitl16sat
 
 ---
 
-## 6) 폴더 구조
 
-```
-project/
-  imatch/            # 라이브러리 모듈들
-  runCLI.py          # 매칭 실행기 (콘솔 진입점)
-  visualize.py       # 시각화 스크립트
-Dockerfile
-docker-compose.yml
-requirements.txt
-.env.example         # ← 이걸 복사해 .env 작성
-```
-
----
 
