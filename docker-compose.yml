@@ -1,0 +1,56 @@
+services:
+  pair:
+    build:
+        context: .
+        dockerfile: Dockerfile
+    image: ${IMAGE_NAME}
+    container_name: dinov3-pair
+    gpus: all
+    shm_size: "8g"
+    working_dir: /workspace/project
+    environment:
+      TZ: ${TZ}
+      # 내부 경로(코드에서 getenv로 읽음)
+      REPO_DIR: ${REPO_DIR}
+      IMG_ROOT: ${IMG_ROOT}
+      EXPORT_DIR: ${EXPORT_DIR}
+      PAIR_VIZ_DIR: ${PAIR_VIZ_DIR}
+      DINOV3_BLOCK_NET: ${DINOV3_BLOCK_NET}
+    volumes:
+      # 프로젝트(이 답변 이후에 만들어질 runCLI.py/visualize.py/imatch/ 포함)
+      - ${PROJECT_HOST}:/workspace/project
+      # dinov3 리포지토리 (torch.hub로 로컬 로딩)
+      - ${CODE_HOST}:/workspace/dinov3
+      # 가중치/데이터/출력
+      - ${WEIGHTS_HOST}:/opt/weights:ro
+      - ${DATASET_HOST}:/opt/datasets
+      - ${EXPORT_HOST}:/exports
+    command: bash -lc "sleep infinity"
+
+
+# --- 이전 버전 (볼륨 별도 정의) ---
+# x-vols: &vols
+#   - ${CODE_HOST}:/workspace/dinov3
+#   - ${WEIGHTS_HOST}:/opt/weights:ro
+#   - ${DATASET_HOST}:/opt/datasets
+#   - ${EXPORT_HOST}:/exports
+#   - ${PROJECT_HOST}:/workspace/project
+
+# services:
+#   pair:
+#     image: ${IMAGE_NAME}
+#     container_name: dinov3-pair
+#     gpus: all
+#     working_dir: /workspace/dinov3
+#     volumes: *vols
+#     environment:
+#       REPO_DIR: ${REPO_DIR}
+#       IMG_ROOT: ${IMG_ROOT}
+#       EXPORT_DIR: ${EXPORT_DIR}
+#       PAIR_VIZ_DIR: ${PAIR_VIZ_DIR}
+#       PAIR_TOKEN_CACHE: ${PAIR_TOKEN_CACHE}
+#       DINOV3_BLOCK_NET: ${DINOV3_BLOCK_NET}
+#     tty: true
+#     stdin_open: true
+#     command: bash -lc "sleep infinity"
+#     restart: unless-stopped
