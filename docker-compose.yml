@@ -1,7 +1,6 @@
 services:
-  # DINOv3 기반 매칭 서비스
+  # DINOv3 기반 매칭 장비
   matching:
-    # 컨테이너 빌드 설정
     build:
       context: .
       dockerfile: Dockerfile
@@ -13,11 +12,11 @@ services:
     environment:
       TZ: ${TZ}
       # 매칭 스크립트에서 사용하는 경로
-      REPO_DIR: 
-      IMG_ROOT: 
-      EMBED_ROOT: 
-      MATCH_ROOT: 
-      VIS_ROOT: 
+      REPO_DIR: ${REPO_DIR}
+      IMG_ROOT: ${IMG_ROOT}
+      EMBED_ROOT: ${EMBED_ROOT}
+      MATCH_ROOT: ${MATCH_ROOT}
+      VIS_ROOT: ${VIS_ROOT}
       VIS_DRAW_POINTS: ${VIS_DRAW_POINTS}
       VIS_POINT_RADIUS: ${VIS_POINT_RADIUS}
       VIS_ALPHA: ${VIS_ALPHA}
