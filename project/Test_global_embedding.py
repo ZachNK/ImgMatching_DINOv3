@@ -13,11 +13,17 @@ from imatch.io_images import load_image_tensor
 from imatch.tfms import build_transform
 
 # 백본 모델, 체크포인트 경로, 이미지 경로, 허브 엔트리 이름, 이미지 크기 설정   
+# ==== custom ====
+IMG_DIR_NAME = "250912154506_300/250912154506_300_0001"
+IMAGE_SIZE = 1024
+FILE_NAME = "global_feature3"
+# ==== custom ====
+
 REPO_DIR = P("/workspace/dinov3")
 CKPT_PATH = P("/opt/weights/01_ViT_LVD-1689M/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth")
-IMAGE_PATH = P("/opt/datasets/250912150549_400/250912150549_400_0010.jpg")
+IMAGE_PATH = P(f"/opt/datasets/{IMG_DIR_NAME}.jpg")
 HUB_ENTRY = "dinov3_vitl16"
-IMAGE_SIZE = 336
+
 
 # DINOv3 모델 로드 함수
 def load_dinov3_model() -> torch.nn.Module: # torch.nn.Module 반환
@@ -55,12 +61,16 @@ def load_dinov3_model() -> torch.nn.Module: # torch.nn.Module 반환
 
 ### 메인 함수: 모델 로드, 이미지 전처리, 특징 추출 및 저장
 def main() -> None: # 반환값 없음
+    
+    ## 1. Prepare Device: torch.device 선택
     # 장치 설정 및 모델 로드: CUDA 사용 가능 시 CUDA, 아니면 CPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    ## DINOv3 모델 로드 및 평가 모드 설정
+    ## 2. Loaf Model: torch.hub 모델 로드 + 체크포인트 주입
+    # DINOv3 모델 로드 및 평가 모드 설정
     model = load_dinov3_model().to(device).eval()
 
+    ## 3. Load Image: imatch.load_image_tensor로 원본 텐서 확보
     # 이미지 로드 및 전처리
     img_tensor = load_image_tensor(IMAGE_PATH.as_posix())
     
@@ -72,38 +82,43 @@ def main() -> None: # 반환값 없음
 
     # 패치 크기에 맞게 이미지 크기 조정 (desired_size: 이미지크기, patch[0]: 패치 크기)
     patch_multiple = math.floor(desired_size / patch[0])
+
+    ## 4. Build Preprocess: 패치 크기 기반 transform 빌드, imatch.tfms.build_transform 사용
     # 이미지 전처리 변환 빌드
     transform = build_transform(patch_size=patch[0], patch_multiple=patch_multiple, interpolation="bicubic", normalize=True)
+
+    print("img_tensor:", img_tensor.shape)
+
     # 전처리된 이미지 텐서를 배치 차원 추가 후 장치로 이동
     input_tensor = transform(img_tensor).unsqueeze(0).to(device)
 
     ### 특징 추출: 전역 특징 벡터 추출
+    ## 5. Run Inference: transform 적용, imatch.features.extract_global_feature 사용
     with torch.inference_mode():
-        # pooled_vec: 추출된 전역 특징 벡터
-        pooled_vec = extract_global_feature(model, input_tensor, str(device))
+        # global_vec: 추출된 전역 특징 벡터
+        global_vec = extract_global_feature(model, input_tensor, str(device))
 
     ### 결과 출력 및 저장
-    pooled_vec = pooled_vec.detach().cpu()
-    # 형태 및 일부 값 출력
-    print("Pooled feature shape:", tuple(pooled_vec.shape))
+    # ※※※ global_vec: 특징 벡터 ※※※
+    # CPU로 이동 및 그래프 분리
+    global_vec = global_vec.detach().cpu()
+    
+    # 형태 출력
+    print("global feature shape:", tuple(global_vec.shape))
     # 값 출력 (리스트 형태)
-    print("Pooled feature (first 10 elements):", pooled_vec.tolist())
+    print("global feature:", global_vec.tolist())
 
-    ### 특징 벡터(임베딩)을 numpy 배열 및 CSV로 저장
+    ### 특징 벡터(임베딩)을 numpy 배열 및 CSV로 저장 → 6. Export Features: numpy 및 csv로 임베딩 저장
     export_dir = P("/exports")
     export_dir.mkdir(parents=True, exist_ok=True)
+    npy_path = export_dir / f"{FILE_NAME}.npy"
+    csv_path = export_dir / f"{FILE_NAME}.csv"
 
-    ### numpy 배열
-    npy_path = export_dir / "pooled_feature.npy"
-    ### csv (1행으로 저장)
-    csv_path = export_dir / "pooled_feature.csv"
-
-    ### 특징 벡터 csv, numpy 저장
-    pooled_arr = pooled_vec.numpy()
-    # numpy 배열로 저장
-    np.save(npy_path, pooled_arr)
-    # CSV 파일로 저장 (1행 형태)
-    np.savetxt(csv_path, pooled_arr[None, :], delimiter=",")
+    # numpy로 저장
+    global_arr = global_vec.numpy()
+    np.save(npy_path, global_arr)
+    # csv로 저장
+    np.savetxt(csv_path, global_arr[None, :], delimiter=",")
     
     # 저장완료 메세지 출력
     print(f"[saved] numpy array -> {npy_path}")
