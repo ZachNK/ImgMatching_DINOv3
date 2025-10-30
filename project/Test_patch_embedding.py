@@ -16,7 +16,7 @@ from imatch.tfms import build_transform
 # ==== custom ====
 IMG_DIR_NAME = "250912154506_300/250912154506_300_0001"
 IMAGE_SIZE = 1024
-FILE_NAME = "global_feature3"
+FILE_NAME = "patch_feature"
 # ==== custom ====
 
 REPO_DIR = P("/workspace/dinov3")

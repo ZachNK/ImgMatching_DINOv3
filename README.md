@@ -304,6 +304,23 @@ dinov3_main/
     └─ pair_vis\
   ```
 
+* **추가 파일 (updated 25.10.30)**
+
+  임베딩 파악을 위한 테스트 모듈:
+
+    `project/Test_patch_embedding.py` 
+    — runs a test/sanity script that loads DINOv3, extracts patch‑level embeddings for a chosen image, and saves or inspects the raw patch token tensors so you can verify patch pipeline behaviour.
+
+    `project/Test_global_embedding.py` 
+    — similar harness for computing the global CLS embedding from DINOv3; it hardcodes image/checkpoint paths and exports the resulting global feature vector.
+
+    `project/feature_map.py` 
+    — end‑to‑end script that loads DINOv3, processes the specified image, computes the full patch–patch cosine similarity matrix, and writes both the flat map and reshaped grid .npy files under /exports.
+
+    `project/display_results.py` 
+    — interactive CLI tool that asks for an original image and up to 100 feature-map images, then builds a Matplotlib figure showing the original on top and all selected maps below with configurable padding; optionally saves the composed figure.
+
+
 ---
 
 ## 2) Docker 이미지 빌드 & 컨테이너 실행
