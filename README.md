@@ -343,6 +343,91 @@ docker compose exec matching run --weights vitl16 -a 400.0200 -b 200.0200
   </p>
   <p align="center"><em>이미지 매칭 실행 및 json, npy 저장 완료</em></p>
   
+* **`ImageNet` 기반 학습 세트(1.28M 장의 이미지)의 픽셀 통계**:
+  * 대부분의 ImageNet 기반 사전 학습 모델(ViT, DINO, MAE 등)은 학습 시, 입력을 $ (x-mean)/std $ 로 Normalization 했음.
+  * 따라서 추론에서도 같은 통계를 사용하면 모델이 기대한 분포와 일치함.
+  * 픽셀을 먼저 `ConvertImageDtype(torch.float32)/ToTensor()`으로 0~1 범위에 바꾼 뒤 해당 평균/표준편차를 적용해야 적절함.
+  * (마찬가지로, 다른 데이터셋이나 사전학습 설정을 쓴 모델일 경우엔 그 모델이 학습 때 사용한 평균/표준편차 값으로 바꿔주는 것이 최선임)
+  
+* **픽셀 Normalization**:
+  > 1. 먼저 이미지를 `unit8` (`0255 → float(01)`)로 변환
+  <br>
+  <div align='center'>
+**Note**:
+| `Variables` | `Description` |
+| -----------: | :------------- |
+| $x_{i,c}(u,v)$ | $i$ 번째 이미지의 픽셀 값 |
+| $H_i, W_i$ | 해상도 |
+| $N$ | 전체 이미지 수 |
+
+
+* 한 채널 $c ∈ \{R,G,B\}$ 에 대한 평균:
+  <details>
+  <summary>mean for normalization</summary>
+  $$\mu_c = \frac{1}{N} \sum_{i=1}^{N} \left(\frac{1}{H_i W_i} \sum_{u=1}^{H_i} \sum_{v=1}^{W_i} \frac{x_{i,c}(u,v)}{255}\right)$$
+  <br>
+  </details>
+  <br>
+
+  > 2. 표준편차는 평균을 뺀 제곱을 평균 낸 뒤 루트 ($\sqrt{}$) 를 취한다 (보통 모집단의 표준편차를 사용). 
+
+  <details>
+  <summary>std for normalization</summary>
+  
+    $$\sigma_c = \sqrt{ \frac{1}{N} \sum_{i=1}^{N} \left( \frac{1}{H_i W_i} \sum_{u=1}^{H_i} \sum_{v=1}^{W_i} \left(\frac{x_{i,c}(u,v)}{255} - \mu_c\right)^2 \right) }$$
+
+  </details>
+
+  <br>
+    <details>
+    <summary>ImageNet평균/분산을 누적 계산하면 다음과 같음:</summary>
+      ImageNet을 순회하며 평균/분산을 누적 계산하는 스크립트
+
+    ```powershell
+    import torch
+    from torchvision import datasets, transforms
+    from torch.utils.data import DataLoader
+
+    dataset = datasets.ImageNet(
+        root="/path/to/imagenet",
+        split="train",
+        transform=transforms.ToTensor(),  # 0~1 범위
+    )
+
+    ### DataLoader 파라미터 설명:
+    # dataset: 로드할 데이터 세트
+    # batch_size: 한번에 배치당 로드할 샘플 수(e.g. 256) 
+    # num_workers: 데이터 로딩에 사용할 하위 프로세스의 수 (백그라운드에 이미지 읽고 전처리할 CPU스레드 수, CPU코어 수와 I/O상황에 맞게 조정)
+    # 이 값들이 통계값 자체를 바꾸는 건 아님. 어디까지나 데이터와 로컬 환경에 맞는 실용적인 예시
+    ###
+    loader = DataLoader(dataset, batch_size=256, num_workers=8)
+
+    mean = 0.0
+    var = 0.0
+    num = 0  # 누적 픽셀 수
+    for images, _ in loader:
+        # images shape: [B, 3, H, W]
+        b, c, h, w = images.shape
+        # B(dim=0)는 배치 차원
+        # 3(dim=1)은 채널(RGB)원
+        # H(dim=2)은 세로(높이) 차원
+        # W(dim=3)은 가로(너비) 차원
+        
+        # 모든 픽셀 = 배치 사이즈 X 세로 x 가로
+        pixels = b * h * w
+        # 채널별 픽셀 합계
+        mean += images.sum(dim=[0, 2, 3])
+        # 각 픽셀을 제곱한 값을 채널별로 더해 ∑ x² 제공
+        var += (images ** 2).sum(dim=[0, 2, 3])
+        num += pixels
+
+    mean /= num
+    var /= num
+    std = torch.sqrt(var - mean ** 2)
+    print(mean, std)  # tensor([0.485..., 0.456..., 0.406...]) / ([0.229..., ...])
+    ```
+    </details>
+    <br>
 
 - `-a`, `-b`: ALT.FRAME 형식 (예: `400.0001`) \
   지정하지 않으면 모든 조합을 순회.
@@ -367,13 +452,13 @@ docker compose exec matching run --weights vitl16 -a 400.0200 -b 200.0200
 
 
 - 주요 튜닝 파라미터
-  | 옵션 | 기본값 | 설명 |
-  | --- | --- | --- |
-  | `--image-size` | 336 | 입력 해상도 |
-  | `--max-features` | 1000 | 패치 토큰 최대 개수 (균등 샘플링) |
-  | `--match-th` | 0.1 | 유사도 절대 임계값 |
-  | `--keypoint-th` | 0.015 | 토큰 L2 임계값 |
-  | `--line-th` | 0.2 | 최고 유사도 대비 상대 임계값 |
+  | 옵션 | 기본값 | 명칭 | 설명 |
+  | --- | --- | --- | --- |
+  | `--image-size` | 336 | 입력 해상도 | 입력 이미지를 몇개의 패치로 나뉠지 결정하는 지표 = 백본에 입력될 전처리 이후의 정사각형 해상도. 백본이 16×16 패치를 전제로 토큰을 만들기 때문에, 입력 해상도도 16의 배수로 맞춰 두는 편이 가장 안전. CLI에서 받은 값을 그대로 `build_transform()`의 첫번째 인자로 넘기며, 내부에서는 `target_size` = `image_size` * `patch_multiple`로 만들어 정사각형 리사이즈를 수행함. 결과적으로 ViT가 보는 해상도 및 토큰 수 ($N=(\frac{target_size}{patch_size_model})^{2}$)가 이 값에 의해 정해짐.  |
+  | `--max-features` | 1000 | 패치 토큰 최대 개수 (균등 샘플링) | 패치 토큰을 최대 몇 개만 남길지 제한 하는 수. 토큰 수가 임계치를 넘으면 균등 간격으로 인덱스를 선택해 서브샘플링하고 , 이때 사용되는 로직은`subsample_tokens()`으로 정의됨. ViT 한 장에서 나오는 패치가 대용량일 때는 k-NN 매칭 비용을 제어함. |
+  | `--match-th` | 0.1 | 유사도 절대 임계값 | 상호 k-NN으로 얻은 패치 쌍의 코사인 유사도를 절대값 임계로 컷 오프 함 (`compute_matches_mutual_knn()`). ViT 패치 임베딩은 정규화 후 내적이 되는 코사인 값이 매칭의 기준. |
+  | `--keypoint-th` | 0.015 | 토큰 L2 임계값 | 패치 토큰의 L2거리를 0~1로 정규화한 후, 해당 임계값 이상인 토큰 만 남김 (`apply_keypoint_threshold()`). 해당 값이 낮을수록 대비가 약한 패치까지 살리고, 높일수록 에너지가 큰 (자기 표현력이 높은) 토큰만 남김. 모든 토큰이 걸러지면 가장 점수 높은 것 하나는 강제로 유지해서, 매칭이 빈 상태가 되지 않게 제어함. |
+  | `--line-th` | 0.2 | 최고 유사도 대비 상대 임계값 | 최고 유사도 대비 상대 임계치를 적용. 최대 유사도 `sim.max()`에 `line_th`를 곱하여 두 번째 필터로 사용하고, Low ratio test처럼 상위 매칭과 너무 격차가 큰 쌍은 제거함. `match_th`가 전역적인 최소 기준이고, `line_th`는 한 이미지 쌍 내에서 상대 품질을 구분하는 역할. |
 
 - 결과 JSON은 _`<Your>\<Project>\<Directory>\dinov3_exports/pair_match/<weight>_<ALT>_<FRAME>/…`_ 에 저장.
 
@@ -387,7 +472,7 @@ docker compose exec matching run --weights vitl16 -a 400.0200 -b 200.0200
 
 - `AutoImageProcessor/AutoModel`쓰는 방법으로 실행
 
-  * 먼저 HF 토큰 확인: Hugging Face에서 DINOv3 모델은 게이트드라 로그인이 필요.
+  * 먼저 HF 토큰 확인: Hugging Face에서 DINOv3 모델은 gated 로그인이 필요.
     토큰 발급닥기 이전에 해당 Hugging Face 모델( facebook/dinov3-convnext-tiny-pretrain-lvd1689m 등)이 gated 모델이므로 접근 권한부터 부여 받아야 함.
 
   * Hugging Face에서 모델 페이지(https://huggingface.co/facebook/dinov3-convnext-tiny-pretrain-lvd1689m 등)를 열고, 로그인한 뒤, 접근 요청해 승인을 받아야 함.
