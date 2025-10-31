@@ -3,11 +3,14 @@ DINOv3 torch.hub 모델을 직접 로드해서 단일 이미지를 추론하는 
 """
 
 from __future__ import annotations
+import os
 import warnings
 import math
+import json
 import torch
 import numpy as np
 from pathlib import Path as P
+from typing import List, Dict
 from imatch.features import extract_global_feature
 from imatch.io_images import load_image_tensor
 from imatch.tfms import build_transform
@@ -15,15 +18,15 @@ from imatch.tfms import build_transform
 # 백본 모델, 체크포인트 경로, 이미지 경로, 허브 엔트리 이름, 이미지 크기 설정   
 # ==== custom ====
 IMG_DIR_NAME = "250912154506_300/250912154506_300_0001"
+CKPT_PATH = P("/opt/weights/01_ViT_LVD-1689M/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth")
 IMAGE_SIZE = 1024
-FILE_NAME = "patch_feature"
 # ==== custom ====
 
+lst = IMG_DIR_NAME.split("/")[-1].split("_")
 REPO_DIR = P("/workspace/dinov3")
-CKPT_PATH = P("/opt/weights/01_ViT_LVD-1689M/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth")
 IMAGE_PATH = P(f"/opt/datasets/{IMG_DIR_NAME}.jpg")
-HUB_ENTRY = "dinov3_vitl16"
-
+HUB_ENTRY = "_".join(os.path.splitext(os.path.basename(CKPT_PATH))[0].split("_")[:2])
+FILE_NAME = f"patch_feature_{HUB_ENTRY}_{lst[1]}_{lst[2]}"
 
 # DINOv3 모델 로드 함수
 def load_dinov3_model() -> torch.nn.Module: # torch.nn.Module 반환

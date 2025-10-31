@@ -5,10 +5,11 @@ from __future__ import annotations
 import math
 import warnings
 from pathlib import Path as P
-
+import json
 import numpy as np
 import torch
 import torch.nn.functional as F
+from typing import List, Dict
 
 from imatch.features import extract_patch_tokens
 from imatch.io_images import load_image_tensor
@@ -16,22 +17,81 @@ from imatch.matching import grid_side
 from imatch.tfms import build_transform
 
 # ==== custom ====
-IMG_DIR_NAME = "250912154506_300/250912154506_300_0010"
-CKPT_PATH = P("/opt/weights/01_ViT_LVD-1689M/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth")
+h = 300
+i = 20
+HUB_ENTRY = "vits16+"
 IMAGE_SIZE = 1024
+
+"""
+※※※※ 25.10.31 이슈 ※※※※ 
+- HUB_ENTRY에서, vitl16sat와 vitl16를 동일한 키로 사용됨 (dinov3_vitl16)
+- imatch/registes에:
+    WEIGHT_FILES로 읽어야 하는데 HUB_BY_ALIAS로 읽는건지 확인 해야 함
+    "dinov3_vitl16" 방식으로 읽지 말고 "vitl16sat" 방식으로 활용해야 함
+※※※※ 25.10.31 이슈 ※※※※ 
+"""
+
+"""
+"01_ViT_LVD-1689M":
+    "vit7b16" 
+    "vitb16" 
+    "vith16+" 
+    "vitl16" 
+    "vits16" 
+    "vits16+"
+
+"02_ConvNeXT_LVD-1689M":
+    "cxBase"
+    "cxLarge"
+    "cxSmall"
+    "cxTiny"
+
+"03_ViT_SAT-493M":
+    "vit7b16sat"
+    "vitl16sat" 
+"""
 # ==== custom ====
 
+# ==== DECODING ====
+JSON = P("/workspace/project/json/data_key.json")
+with open(JSON, 'r') as s: file = json.load(s)
+IMAGE_KEY = file[list(file.keys())[0]]
+MODEL_KEY = file[list(file.keys())[1]]
+
+def img_path(alt: int, img: int) -> str:
+    fld = "_".join([[k for k in IMAGE_KEY][9-int(alt/50)], str(alt)])
+    dts = "_".join([fld, '%04d'%img])
+    result = "/".join([fld, dts])
+    return result
+
+def ckpt_path(key: str) -> str:
+    folderName = ""
+    for p in MODEL_KEY:
+        for models in list(MODEL_KEY[p].keys()):
+            if key == models:
+                folderName = p
+                fileName = MODEL_KEY[p][models] 
+    
+    result = "/".join(["/opt","weights", folderName, fileName])
+    return result
+
+IMG_DIR_NAME = img_path(h, i)
+CKPT_PATH = ckpt_path(HUB_ENTRY)
 lst = IMG_DIR_NAME.split("/")[-1].split("_")
 if len(lst) < 3:
     raise ValueError(f"Expected at least three underscore-separated tokens in {IMG_DIR_NAME!r}.")
-
 REPO_DIR = P("/workspace/dinov3")
 DATASET_ROOT = P("/opt/datasets")
 EXPORT_ROOT = P("/exports")
 IMAGE_PATH = DATASET_ROOT / f"{IMG_DIR_NAME}.jpg"
-HUB_ENTRY = "_".join(CKPT_PATH.stem.split("_")[:2])
 FILE_NAME = f"global_feature_{HUB_ENTRY}_{lst[1]}_{lst[2]}"
 FILE_PREFIX = f"{HUB_ENTRY}_{lst[1]}_{lst[2]}"
+# ==== DECODING ====
+
+# ====DEBUGING=======
+# print("REPO_DIR: ", REPO_DIR, "HUB_ENTRY: ", HUB_ENTRY, "CKPT_PATH: ", CKPT_PATH)
+
+# ====DEBUGING=======
 
 def load_dinov3_model(repo_dir: P, hub_entry: str, ckpt_path: P, device: torch.device) -> torch.nn.Module:
     """
