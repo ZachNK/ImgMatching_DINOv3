@@ -17,38 +17,26 @@ from imatch.matching import grid_side
 from imatch.tfms import build_transform
 
 # ==== custom ====
-h = 300
-i = 20
-HUB_ENTRY = "vits16+"
+h = 400
+i = 112
+WEGHIT_KEY = "vitl16"
 IMAGE_SIZE = 1024
 
-"""
-※※※※ 25.10.31 이슈 ※※※※ 
-- HUB_ENTRY에서, vitl16sat와 vitl16를 동일한 키로 사용됨 (dinov3_vitl16)
-- imatch/registes에:
-    WEIGHT_FILES로 읽어야 하는데 HUB_BY_ALIAS로 읽는건지 확인 해야 함
-    "dinov3_vitl16" 방식으로 읽지 말고 "vitl16sat" 방식으로 활용해야 함
-※※※※ 25.10.31 이슈 ※※※※ 
-"""
+""" Weight Key: HUB_ENTRY
+"vit7b16": "dinov3_vit7b16",
+"vitb16": "dinov3_vitb16",
+"vith16+": "dinov3_vith16plus",
+"vitl16": "dinov3_vitl16",
+"vits16": "dinov3_vits16",
+"vits16+": "dinov3_vits16plus",
 
-"""
-"01_ViT_LVD-1689M":
-    "vit7b16" 
-    "vitb16" 
-    "vith16+" 
-    "vitl16" 
-    "vits16" 
-    "vits16+"
+"cxBase": "convnext_base",
+"cxLarge": "convnext_large",
+"cxSmall": "convnext_small",
+"cxTiny": "convnext_tiny",
 
-"02_ConvNeXT_LVD-1689M":
-    "cxBase"
-    "cxLarge"
-    "cxSmall"
-    "cxTiny"
-
-"03_ViT_SAT-493M":
-    "vit7b16sat"
-    "vitl16sat" 
+"vit7b16sat": "dinov3_vit7b16",
+"vitl16sat": "dinov3_vitl16",
 """
 # ==== custom ====
 
@@ -58,25 +46,26 @@ with open(JSON, 'r') as s: file = json.load(s)
 IMAGE_KEY = file[list(file.keys())[0]]
 MODEL_KEY = file[list(file.keys())[1]]
 
+
 def img_path(alt: int, img: int) -> str:
     fld = "_".join([[k for k in IMAGE_KEY][9-int(alt/50)], str(alt)])
     dts = "_".join([fld, '%04d'%img])
     result = "/".join([fld, dts])
     return result
 
-def ckpt_path(key: str) -> str:
-    folderName = ""
+def ckpt_path(key: str) -> List[str]:
     for p in MODEL_KEY:
         for models in list(MODEL_KEY[p].keys()):
             if key == models:
                 folderName = p
-                fileName = MODEL_KEY[p][models] 
-    
-    result = "/".join(["/opt","weights", folderName, fileName])
+                hubEntry = MODEL_KEY[p][models][0]
+                fileName = MODEL_KEY[p][models][1]                
+    result = [hubEntry, "/".join(["/opt","weights", folderName, fileName])]
     return result
 
 IMG_DIR_NAME = img_path(h, i)
-CKPT_PATH = ckpt_path(HUB_ENTRY)
+HUB_ENTRY = ckpt_path(WEGHIT_KEY)[0]
+CKPT_PATH = ckpt_path(WEGHIT_KEY)[1]
 lst = IMG_DIR_NAME.split("/")[-1].split("_")
 if len(lst) < 3:
     raise ValueError(f"Expected at least three underscore-separated tokens in {IMG_DIR_NAME!r}.")
@@ -104,11 +93,12 @@ def load_dinov3_model(repo_dir: P, hub_entry: str, ckpt_path: P, device: torch.d
     torch.nn.Module를 반환하며, 누락/예상치 못한 키를 로그로 출력.
     """
     warnings.filterwarnings("ignore", category=UserWarning)
+
     model = torch.hub.load(repo_dir.as_posix(), hub_entry, source="local", trust_repo=True, pretrained=False)
 
     map_location = device if device.type == "cpu" else torch.device(device.type, device.index or 0)
     try:
-        state = torch.load(ckpt_path.as_posix(), map_location=map_location)
+        state = torch.load(ckpt_path, map_location=map_location)
     except TypeError:
         state = torch.load(str(ckpt_path), map_location="cpu")
 
@@ -242,6 +232,17 @@ def main() -> None:
         raise FileNotFoundError(f"Image not found: {IMAGE_PATH}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    print(
+        "================= Debug: Test Feature Map =================\n", 
+        "REPO_DIR: ", REPO_DIR, "\n", 
+        "IMAGE_PATH: ", IMAGE_PATH, "\n",
+        "HUB_ENTRY: ", HUB_ENTRY, "\n", 
+        "CKPT_PATH: ", CKPT_PATH, "\n", 
+        "device: ", device, 
+        "\n================= Debug: Test Feature Map =================\n"
+        )
+
     model = load_dinov3_model(REPO_DIR, HUB_ENTRY, CKPT_PATH, device)
 
     generate_patch_cosine(

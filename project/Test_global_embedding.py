@@ -17,8 +17,8 @@ from imatch.tfms import build_transform
 
 # 백본 모델, 체크포인트 경로, 이미지 경로, 허브 엔트리 이름, 이미지 크기 설정   
 # ==== custom ====
-IMG_DIR_NAME = "250912154506_300/250912154506_300_0001"
-CKPT_PATH = P("/opt/weights/03_ViT_SAT-493M/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth")
+IMG_DIR_NAME = "250912150549_400/250912150549_400_0112"
+CKPT_PATH = P("/opt/weights/01_ViT_LVD-1689M/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth")
 IMAGE_SIZE = 1024
 # ==== custom ====
 
@@ -27,8 +27,6 @@ REPO_DIR = P("/workspace/dinov3")
 IMAGE_PATH = P(f"/opt/datasets/{IMG_DIR_NAME}.jpg")
 HUB_ENTRY = "_".join(os.path.splitext(os.path.basename(CKPT_PATH))[0].split("_")[:2])
 FILE_NAME = f"global_feature_{HUB_ENTRY}_{lst[1]}_{lst[2]}"
-
-print(HUB_ENTRY)
 
 # DINOv3 모델 로드 함수
 def load_dinov3_model() -> torch.nn.Module: # torch.nn.Module 반환
@@ -40,7 +38,6 @@ def load_dinov3_model() -> torch.nn.Module: # torch.nn.Module 반환
     # trust_repo=True: 신뢰할 수 있는 저장소로 간주 (보안 경고 비활성화)
 
     model = torch.hub.load(REPO_DIR.as_posix(), HUB_ENTRY, source="local", trust_repo=True, pretrained=False)
-    
     ### 체크포인트 로드 및 모델 가중치 설정
     try:
         # CUDA 장치에 맞게 체크포인트 로드 시도
@@ -71,6 +68,16 @@ def main() -> None: # 반환값 없음
     # 장치 설정 및 모델 로드: CUDA 사용 가능 시 CUDA, 아니면 CPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
+    print(
+        "\n================= Debug: Test Global Embedding =================\n",
+        "REPO_DIR: ", REPO_DIR, "\n", 
+        "IMAGE_PATH: ", IMAGE_PATH, "\n",
+        "HUB_ENTRY: ", HUB_ENTRY, "\n", 
+        "CKPT_PATH: ", CKPT_PATH, "\n", 
+        "device: ", device, 
+        "\n================= Debug: Test Global Embedding =================\n"
+        )
+
     ## 2. Loaf Model: torch.hub 모델 로드 + 체크포인트 주입
     # DINOv3 모델 로드 및 평가 모드 설정
     model = load_dinov3_model().to(device).eval()
@@ -126,8 +133,8 @@ def main() -> None: # 반환값 없음
     np.savetxt(csv_path, global_arr[None, :], delimiter=",")
     
     # 저장완료 메세지 출력
-    print(f"[saved] DINOv3 numpy array -> {npy_path}")
-    print(f"[saved] DINOv3 csv row     -> {csv_path}")
+    print(f"[saved] Test Global embedding DINOv3 numpy array -> {npy_path}")
+    print(f"[saved] Test Global embedding DINOv3 csv row     -> {csv_path}")
 
 
 if __name__ == "__main__":
