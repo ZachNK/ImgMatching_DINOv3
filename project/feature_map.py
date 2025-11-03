@@ -4,25 +4,24 @@ from __future__ import annotations
 
 import math
 import warnings
-from pathlib import Path as P
+from pathlib import Path
 import json
 import numpy as np
 import torch
 import torch.nn.functional as F
 from typing import List, Dict
 
-from imatch.features import extract_patch_tokens
+from imatch.features import extract_patch_tokens, reshape_patch_tokens_to_grid
 from imatch.io_images import load_image_tensor
-from imatch.matching import grid_side
 from imatch.tfms import build_transform
 
 # ==== custom ====
-h = 400
-i = 112
-WEGHIT_KEY = "vitl16"
-IMAGE_SIZE = 1024
+varH = 300
+varI = 1
+varKEY = "vits16"
+varSIZE = 1024
 
-""" Weight Key: HUB_ENTRY
+""" >>>> Weight Key: HUB_ENTRY
 "vit7b16": "dinov3_vit7b16",
 "vitb16": "dinov3_vitb16",
 "vith16+": "dinov3_vith16plus",
@@ -41,11 +40,10 @@ IMAGE_SIZE = 1024
 # ==== custom ====
 
 # ==== DECODING ====
-JSON = P("/workspace/project/json/data_key.json")
+JSON = Path("/workspace/project/json/data_key.json")
 with open(JSON, 'r') as s: file = json.load(s)
 IMAGE_KEY = file[list(file.keys())[0]]
 MODEL_KEY = file[list(file.keys())[1]]
-
 
 def img_path(alt: int, img: int) -> str:
     fld = "_".join([[k for k in IMAGE_KEY][9-int(alt/50)], str(alt)])
@@ -63,15 +61,15 @@ def ckpt_path(key: str) -> List[str]:
     result = [hubEntry, "/".join(["/opt","weights", folderName, fileName])]
     return result
 
-IMG_DIR_NAME = img_path(h, i)
-HUB_ENTRY = ckpt_path(WEGHIT_KEY)[0]
-CKPT_PATH = ckpt_path(WEGHIT_KEY)[1]
+IMG_DIR_NAME = img_path(varH, varI)
+HUB_ENTRY = ckpt_path(varKEY)[0]
+CKPT_PATH = ckpt_path(varKEY)[1]
 lst = IMG_DIR_NAME.split("/")[-1].split("_")
 if len(lst) < 3:
     raise ValueError(f"Expected at least three underscore-separated tokens in {IMG_DIR_NAME!r}.")
-REPO_DIR = P("/workspace/dinov3")
-DATASET_ROOT = P("/opt/datasets")
-EXPORT_ROOT = P("/exports")
+REPO_DIR = Path("/workspace/dinov3")
+DATASET_ROOT = Path("/opt/datasets")
+EXPORT_ROOT = Path("/exports")
 IMAGE_PATH = DATASET_ROOT / f"{IMG_DIR_NAME}.jpg"
 FILE_NAME = f"global_feature_{HUB_ENTRY}_{lst[1]}_{lst[2]}"
 FILE_PREFIX = f"{HUB_ENTRY}_{lst[1]}_{lst[2]}"
@@ -82,7 +80,7 @@ FILE_PREFIX = f"{HUB_ENTRY}_{lst[1]}_{lst[2]}"
 
 # ====DEBUGING=======
 
-def load_dinov3_model(repo_dir: P, hub_entry: str, ckpt_path: P, device: torch.device) -> torch.nn.Module:
+def load_dinov3_model(repo_dir: str, hub_entry: str, ckpt_path: str, device: torch.device) -> torch.nn.Module:
     """
     torch.hub에서 DINOv3 모델을 불러오고, 체크포인트를 로드해 키를 정리한 뒤 지정한 장치(GPU/CPU)로 올림.
 
@@ -98,7 +96,7 @@ def load_dinov3_model(repo_dir: P, hub_entry: str, ckpt_path: P, device: torch.d
 
     map_location = device if device.type == "cpu" else torch.device(device.type, device.index or 0)
     try:
-        state = torch.load(ckpt_path, map_location=map_location)
+        state = torch.load(ckpt_path, map_location=map_location, weights_only=True)
     except TypeError:
         state = torch.load(str(ckpt_path), map_location="cpu")
 
@@ -169,7 +167,7 @@ def export_outputs(
 
 def generate_patch_cosine(
     model: torch.nn.Module,
-    image_path: P,
+    image_path: Path,
     image_size: int,
     device: torch.device,
 ) -> None:
@@ -211,14 +209,20 @@ def generate_patch_cosine(
         raise RuntimeError("Patch tokens could not be extracted from the model output.")
 
     tokens = tokens.detach()
-    original_count = tokens.shape[0]
+
+    try:
+        tokens_grid = reshape_patch_tokens_to_grid(tokens)
+        grid_hw = tokens_grid.shape[:2]
+    except ValueError as err:
+        tokens_grid = None
+        grid_hw = None
+        print(f"[warn] token grid reshape failed: {err}")
 
     cosine_map = compute_cosine_map(tokens)
-    grid = grid_side(original_count)
-    grid_hw = (grid, grid) if grid is not None else None
 
+    grid_info = "x".join(map(str, grid_hw)) if grid_hw else "unknown"
     print(f"[info] image={image_path}")
-    print(f"       tokens={tokens.shape}  cosine={cosine_map.shape}  grid={'x'.join(map(str, grid_hw)) if grid_hw else 'unknown'}")
+    print(f"       tokens={tokens.shape}  cosine={cosine_map.shape}  grid={grid_info}")
 
     ## 출력
     export_outputs(
@@ -248,7 +252,7 @@ def main() -> None:
     generate_patch_cosine(
         model=model,
         image_path=IMAGE_PATH,
-        image_size=IMAGE_SIZE,
+        image_size=varSIZE,
         device=device,
     )
 

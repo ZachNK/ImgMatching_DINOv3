@@ -3,29 +3,66 @@ DINOv3 torch.hub 모델을 직접 로드해서 단일 이미지를 추론하는 
 """
 
 from __future__ import annotations
-import os
 import warnings
+import os
 import math
 import json
 import torch
 import numpy as np
-from pathlib import Path as P
+from pathlib import Path
 from typing import List, Dict
-from imatch.features import extract_global_feature
+from imatch.features import (
+    extract_global_feature,
+    extract_patch_tokens,
+    reshape_patch_tokens_to_grid,
+)
 from imatch.io_images import load_image_tensor
 from imatch.tfms import build_transform
 
 # 백본 모델, 체크포인트 경로, 이미지 경로, 허브 엔트리 이름, 이미지 크기 설정   
 # ==== custom ====
-IMG_DIR_NAME = "250912150549_400/250912150549_400_0112"
-CKPT_PATH = P("/opt/weights/01_ViT_LVD-1689M/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth")
-IMAGE_SIZE = 1024
+varH = 300
+varI = 1
+varKEY = "vit7b16"
+varSIZE = 1024
+"""
+"vit7b16", "vitb16", "vith16+", "vitl16", "vits16", "vits16+"
+"cxBase", "cxLarge", "cxSmall", "cxTiny"
+"vit7b16sat", "vitl16sat" 
+"""
 # ==== custom ====
 
+JSON = Path("/workspace/project/json/data_key.json")
+with open(JSON, 'r') as s: file = json.laod(s)
+IMAGE_KEY = file[list(file.keys())[0]]
+MODEL_KEY = file[list(file.keys())[1]]
+
+def img_path(alt: int, img: int) -> str:
+    fld = "_".join([[k for k in IMAGE_KEY][9-int(alt/50)], str(alt)])
+    dts = "_".join([fld, '%04d'%img])
+    result = "/".join([fld, dts])
+    return result
+
+def ckpt_path(key: str) -> List[str]:
+    for p in MODEL_KEY:
+        for models in list(MODEL_KEY[p].keys()):
+            if key == models:
+                folderName = p
+                hubEntry = MODEL_KEY[p][models][0]
+                fileName = MODEL_KEY[p][models][1]
+    result = [hubEntry, "/".join(["/opt", "weights", folderName, fileName])]
+    return result
+
+IMG_DIR_NAME = "250912154506_300/250912154506_300_0001"
+HUB_ENTRY = ckpt_path(varKEY)
+CKPT_PATH = ckpt_path(varKEY)[1]
 lst = IMG_DIR_NAME.split("/")[-1].split("_")
-REPO_DIR = P("/workspace/dinov3")
-IMAGE_PATH = P(f"/opt/datasets/{IMG_DIR_NAME}.jpg")
-HUB_ENTRY = "_".join(os.path.splitext(os.path.basename(CKPT_PATH))[0].split("_")[:2])
+if len(lst) < 3:
+    raise ValueError(f"Expected at least three underscore-separated tokens in {IMG_DIR_NAME!r}.")
+REPO_DIR = Path("/workspace/dinov3")
+DATASET_ROOT = Path("/opt/datasets")
+EXPORT_ROOT = Path("/exports")
+IMAGE_PATH = DATASET_ROOT / f"{IMG_DIR_NAME}.jpg"
 FILE_NAME = f"global_feature_{HUB_ENTRY}_{lst[1]}_{lst[2]}"
 
 # DINOv3 모델 로드 함수
@@ -41,7 +78,7 @@ def load_dinov3_model() -> torch.nn.Module: # torch.nn.Module 반환
     ### 체크포인트 로드 및 모델 가중치 설정
     try:
         # CUDA 장치에 맞게 체크포인트 로드 시도
-        state = torch.load(CKPT_PATH.as_posix(), map_location="cuda:0")
+        state = torch.load(CKPT_PATH.as_posix(), map_location="cuda:0", weights_only=True)
     except TypeError:
         # 실패 시 CPU에 맞게 로드
         state = torch.load(str(CKPT_PATH), map_location="cpu")
@@ -62,35 +99,36 @@ def load_dinov3_model() -> torch.nn.Module: # torch.nn.Module 반환
     return model
 
 ### 메인 함수: 모델 로드, 이미지 전처리, 특징 추출 및 저장
+
 def main() -> None: # 반환값 없음
-    
+
     ## 1. Prepare Device: torch.device 선택
-    # 장치 설정 및 모델 로드: CUDA 사용 가능 시 CUDA, 아니면 CPU
+    # 장치 설정 후 모델 로드: CUDA 사용 가능시 CUDA, 아니면 CPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
     print(
         "\n================= Debug: Test Global Embedding =================\n",
-        "REPO_DIR: ", REPO_DIR, "\n", 
+        "REPO_DIR: ", REPO_DIR, "\n",
         "IMAGE_PATH: ", IMAGE_PATH, "\n",
-        "HUB_ENTRY: ", HUB_ENTRY, "\n", 
-        "CKPT_PATH: ", CKPT_PATH, "\n", 
-        "device: ", device, 
-        "\n================= Debug: Test Global Embedding =================\n"
-        )
+        "HUB_ENTRY: ", HUB_ENTRY, "\n",
+        "CKPT_PATH: ", CKPT_PATH, "\n",
+        "device: ", device,
+        "\n================= Debug: Test Global Embedding =================\n",
+    )
 
     ## 2. Loaf Model: torch.hub 모델 로드 + 체크포인트 주입
-    # DINOv3 모델 로드 및 평가 모드 설정
+    # DINOv3 모델 로드 후 평가 모드 설정
     model = load_dinov3_model().to(device).eval()
 
     ## 3. Load Image: imatch.load_image_tensor로 원본 텐서 확보
     # 이미지 로드 및 전처리
     img_tensor = load_image_tensor(IMAGE_PATH.as_posix())
-    
+
     # 모델의 패치 크기 가져오기
     patch = model.patch_embed.patch_size 
-    
+
     # 이미지 크기
-    desired_size = IMAGE_SIZE
+    desired_size = varSIZE
 
     # 패치 크기에 맞게 이미지 크기 조정 (desired_size: 이미지크기, patch[0]: 패치 크기)
     patch_multiple = math.floor(desired_size / patch[0])
@@ -101,41 +139,59 @@ def main() -> None: # 반환값 없음
 
     print("img_tensor:", img_tensor.shape)
 
-    # 전처리된 이미지 텐서를 배치 차원 추가 후 장치로 이동
+    # 전처리된 이미지 텐서에 배치 차원 추가 후 장치로 이동
     input_tensor = transform(img_tensor).unsqueeze(0).to(device)
 
-    ### 특징 추출: 전역 특징 벡터 추출
+    ### 특징 추출: 글로벌 특징 벡터 & 패치 토큰 추출
     ## 5. Run Inference: transform 적용, imatch.features.extract_global_feature 사용
     with torch.inference_mode():
-        # global_vec: 추출된 전역 특징 벡터
+        # global_vec: 추출된 글로벌 특징 벡터
         global_vec = extract_global_feature(model, input_tensor, str(device))
+        patch_tokens = extract_patch_tokens(model, input_tensor, str(device))
 
     ### 결과 출력 및 저장
-    # ※※※ global_vec: 특징 벡터 ※※※
-    # CPU로 이동 및 그래프 분리
+    # ※※※global_vec: 특징 벡터 ※※※
+    # CPU로 이동 후 그래프 분리
     global_vec = global_vec.detach().cpu()
-    
-    # 형태 출력
+    patch_grid = None
+    if patch_tokens is not None:
+        patch_tokens = patch_tokens.detach().cpu()
+        try:
+            patch_grid = reshape_patch_tokens_to_grid(patch_tokens)
+        except ValueError as err:
+            print(f"[warn] patch grid reshape failed: {err}")
+    else:
+        print("[warn] patch tokens could not be extracted.")
+
+    # 상태 출력
     print("Global feature shape:", tuple(global_vec.shape))
     # 값 출력 (리스트 형태)
     print("Global feature:", global_vec.tolist())
 
-    ### 특징 벡터(임베딩)을 numpy 배열 및 CSV로 저장 → 6. Export Features: numpy 및 csv로 임베딩 저장
-    export_dir = P("/exports")
-    export_dir.mkdir(parents=True, exist_ok=True)
-    npy_path = export_dir / f"{FILE_NAME}.npy"
-    csv_path = export_dir / f"{FILE_NAME}.csv"
+    if patch_tokens is not None:
+        print("Patch tokens shape:", tuple(patch_tokens.shape))
+        if patch_grid is not None:
+            print("Patch grid shape:", tuple(patch_grid.shape))
+
+    ### 특징 벡터(배열)를 numpy 배열과 CSV로 저장
+    ### 6. Export Features: numpy 와 csv로 배열 저장
+    EXPORT_ROOT.mkdir(parents=True, exist_ok=True)
+    npy_path = EXPORT_ROOT / f"{FILE_NAME}.npy"
+    csv_path = EXPORT_ROOT / f"{FILE_NAME}.csv"
+    grid_path = EXPORT_ROOT / f"patch_grid_{FILE_NAME}.npy"
 
     # numpy로 저장
     global_arr = global_vec.numpy()
     np.save(npy_path, global_arr)
     # csv로 저장
     np.savetxt(csv_path, global_arr[None, :], delimiter=",")
-    
-    # 저장완료 메세지 출력
+
+    # 저장완료메세지 출력
     print(f"[saved] Test Global embedding DINOv3 numpy array -> {npy_path}")
     print(f"[saved] Test Global embedding DINOv3 csv row     -> {csv_path}")
-
+    if patch_grid is not None:
+        np.save(grid_path, patch_grid.numpy())
+        print(f"[saved] Patch token grid numpy array           -> {grid_path}")
 
 if __name__ == "__main__":
     main()

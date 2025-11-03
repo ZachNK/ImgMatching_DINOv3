@@ -1,4 +1,5 @@
 # project/imatch/features.py
+import math
 import torch
 from typing import Optional, Tuple
 
@@ -169,3 +170,53 @@ def apply_keypoint_threshold(
     # 반환    
     return filtered_tokens, filtered_idx_map
 
+
+def reshape_patch_tokens_to_grid(
+    tokens: torch.Tensor,
+    grid_hw: Optional[Tuple[int, int]] = None,
+    keep_batch: bool = False,
+) -> torch.Tensor:
+    """
+    패치 토큰을 (grid_h, grid_w[, embed_dim]) 형태의 격자로 재배열한다.
+
+    tokens:
+        - (N, C) 또는 (B, N, C) 형태의 패치 토큰 텐서.
+    grid_hw:
+        - (grid_h, grid_w)를 명시하면 해당 격자로 reshape.
+        - None이면 토큰 수가 정사각형이라고 가정하고 자동으로 sqrt(n)을 사용한다.
+    keep_batch:
+        - 입력이 배치 차원을 포함(B, N, C)할 때 True이면 (B, grid_h, grid_w, C)를 유지.
+          False이면 배치가 1이라고 가정하고 squeeze(0) 수행.
+    """
+    if tokens.ndim == 3:
+        batch, num_tokens, dim = tokens.shape
+        tok = tokens
+    elif tokens.ndim == 2:
+        batch, num_tokens, dim = None, tokens.shape[0], tokens.shape[1]
+        tok = tokens.unsqueeze(0)
+    else:
+        raise ValueError(f"tokens ndim must be 2 or 3, got {tokens.ndim}")
+
+    if grid_hw is None:
+        side = int(round(math.sqrt(num_tokens)))
+        if side * side != num_tokens:
+            raise ValueError(
+                f"Unable to infer grid size: token count {num_tokens} is not a perfect square."
+            )
+        grid_hw = (side, side)
+
+    gx, gy = grid_hw
+    if gx * gy != num_tokens:
+        raise ValueError(
+            f"grid_hw {grid_hw} does not match token count {num_tokens}."
+        )
+
+    reshaped = tok.reshape(tok.shape[0], gx, gy, dim).contiguous()
+
+    if keep_batch:
+        return reshaped if tokens.ndim == 3 else reshaped
+
+    if reshaped.shape[0] != 1:
+        raise ValueError("Cannot squeeze batch dimension when batch size != 1.")
+
+    return reshaped.squeeze(0)
