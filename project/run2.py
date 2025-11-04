@@ -25,11 +25,10 @@ from transformers import AutoImageProcessor, AutoModel, BatchFeature
 from transformers.utils import logging as hf_logging
 
 from imatch.cli_utils import bounded_float, bounded_int
-from imatch.env import EMBED_ROOT, IMG_ROOT
 from imatch.features import apply_keypoint_threshold, cosine_similarity
 from imatch.io_images import enumerate_pairs, scan_images_by_regex
 from imatch.matching import compute_matches_mutual_knn, enforce_unique_matches, grid_side, subsample_tokens
-from imatch.paths import match_root, out_dir_for_pair, out_name_for_pair
+from imatch.paths import EMBED_ROOT, IMG_ROOT, MATCH_ROOT
 
 # Hugging Face model aliases that mirror 기존 torch.hub alias 일부.
 HF_MODEL_ALIASES: dict[str, str] = {
@@ -382,7 +381,7 @@ def main() -> None:
                     meta = dict(
                         img_root=str(IMG_ROOT),
                         embed_root=str(EMBED_ROOT),
-                        match_root=str(match_root()),
+                        match_root=str(MATCH_ROOT),
                         hf_model=spec.model_id,
                         device=str(device),
                         image_size=int(args.image_size),
@@ -410,9 +409,9 @@ def main() -> None:
                     if patch is not None:
                         payload["patch"] = patch
 
-                    out_dir = out_dir_for_pair(spec.label, a_key)
+                    out_dir = MATCH_ROOT / f"{spec.label}_{a_key.split(".")[0]}_{a_key.split(".")[1]}"
                     out_dir.mkdir(parents=True, exist_ok=True)
-                    out_name = out_name_for_pair(spec.label, a_key, b_key)
+                    out_name = f"{spec.label}_{a_key}_{b_key}"
                     out_path = out_dir / f"{out_name}.json"
                     out_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
                     print(f"[saved] {out_path}")

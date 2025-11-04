@@ -1,9 +1,9 @@
 from pathlib import Path
 import numpy as np
 from PIL import Image
-fileName = "dinov3_vitl16_400_0112"
+fileName = "dinov3_vit7b16_300_1"
 mapPath = Path(f"/exports/patch_cosine_map_{fileName}.npy")
-gridPath = Path(f"/exports/patch_cosine_grid_{fileName}.npy")
+gridPath = Path(f"/exports/patch_grid_global_{fileName}.npy")
 mapData = np.load(mapPath)
 gridData = np.load(gridPath)
 if mapData.dtype != np.uint8:

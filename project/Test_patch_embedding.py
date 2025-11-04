@@ -3,68 +3,45 @@ DINOv3 torch.hub 모델을 직접 로드해서 단일 이미지를 추론하는 
 """
 
 from __future__ import annotations
-import os
 import warnings
+import os
 import math
 import json
 import torch
 import numpy as np
-from pathlib import Path as P
+from pathlib import Path
 from typing import List, Dict
 from imatch.features import (
     extract_global_feature,
     extract_patch_tokens,
     reshape_patch_tokens_to_grid,
 )
+from imatch.paths import ckpt_path, file_prefix, DATASET_ROOT, EXPORT_ROOT
+from imatch.models import load_model
 from imatch.io_images import load_image_tensor
 from imatch.tfms import build_transform
 
 # 백본 모델, 체크포인트 경로, 이미지 경로, 허브 엔트리 이름, 이미지 크기 설정   
 # ==== custom ====
-IMG_DIR_NAME = "250912154506_300/250912154506_300_0001"
-CKPT_PATH = P("/opt/weights/01_ViT_LVD-1689M/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth")
-IMAGE_SIZE = 1024
+# 변경 변수 설정
+varAltitude = 300 # 이미지 높이
+varIndex = 1 # 이미지 인덱스
+varWeight = "vit7b16" # 모델 키
+varTargetRes = 1024 # 최대 목표 해상도
+"""
+"vit7b16", "vitb16", "vith16+", "vitl16", "vits16", "vits16+"
+"cxBase", "cxLarge", "cxSmall", "cxTiny"
+"vit7b16sat", "vitl16sat" 
+"""
 # ==== custom ====
 
-lst = IMG_DIR_NAME.split("/")[-1].split("_")
-REPO_DIR = P("/workspace/dinov3")
-IMAGE_PATH = P(f"/opt/datasets/{IMG_DIR_NAME}.jpg")
-HUB_ENTRY = "_".join(os.path.splitext(os.path.basename(CKPT_PATH))[0].split("_")[:2])
-FILE_NAME = f"patch_feature_{HUB_ENTRY}_{lst[1]}_{lst[2]}"
+HUB_ENTRY = ckpt_path(varWeight)
+CKPT_PATH = ckpt_path(varWeight)[1]
+IMG_DIR_NAME = file_prefix(varAltitude, varIndex)
 
-# DINOv3 모델 로드 함수
-def load_dinov3_model() -> torch.nn.Module: # torch.nn.Module 반환
-    warnings.filterwarnings("ignore", category=UserWarning)
-    ### 로컬에서 DINOv3 백본 모델 로드
-    # REPO_DIR 경로에서 허브 엔트리 이름으로 모델 로드, 사전 학습된 가중치 없이 로드
-    # HUB_ENTRY: 허브에서 로드할 모델의 이름
-    # source="local": 로컬 경로에서 모델을 로드
-    # trust_repo=True: 신뢰할 수 있는 저장소로 간주 (보안 경고 비활성화)
-
-    model = torch.hub.load(REPO_DIR.as_posix(), HUB_ENTRY, source="local", trust_repo=True, pretrained=False)
-    
-    ### 체크포인트 로드 및 모델 가중치 설정
-    try:
-        # CUDA 장치에 맞게 체크포인트 로드 시도
-        state = torch.load(CKPT_PATH.as_posix(), map_location="cuda:0", weights_only=True)
-    except TypeError:
-        # 실패 시 CPU에 맞게 로드
-        state = torch.load(str(CKPT_PATH), map_location="cpu")
-    # 체크포인트에서 'state_dict' 키가 있으면 해당 값으로 설정
-    if isinstance(state, dict) and "state_dict" in state:
-        state = state["state_dict"]
-    # 'module.' 접두사가 있는 키를 제거하여 모델에 맞게 정리
-    cleaned_state = {k[7:] if k.startswith("module.") else k: v for k, v in state.items()}
-    # 모델에 가중치 로드, 엄격하지 않게 설정하여 누락된 키나 예기치 않은 키 경고 출력
-    missing, unexpected = model.load_state_dict(cleaned_state, strict=False)
-    if missing:
-        # 누락된 키 경고 출력
-        print(f"[ckpt][warn] missing keys: {len(missing)}")
-    if unexpected:
-        # 예기치 않은 키 경고 출력
-        print(f"[ckpt][warn] unexpected keys: {len(unexpected)}")
-    # 모델 반환    
-    return model
+REPO_DIR = Path("/workspace/dinov3")
+IMAGE_PATH = DATASET_ROOT / f"{IMG_DIR_NAME}.jpg"
+FILE_NAME = f"global_feature_{HUB_ENTRY}_{IMG_DIR_NAME}"
 
 ### 메인 함수: 모델 로드, 이미지 전처리, 특징 추출 및 저장
 
@@ -74,9 +51,19 @@ def main() -> None: # 반환값 없음
     # 장치 설정 후 모델 로드: CUDA 사용 가능시 CUDA, 아니면 CPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    ## 2. Loaf Model: torch.hub 모델 로드 + 체크포인트 주입
+    print(
+        "\n================= Debug: Test patch Embedding =================\n",
+        "REPO_DIR: ", REPO_DIR, "\n",
+        "IMAGE_PATH: ", IMAGE_PATH, "\n",
+        "HUB_ENTRY: ", HUB_ENTRY, "\n",
+        "CKPT_PATH: ", CKPT_PATH, "\n",
+        "device: ", device,
+        "\n================= Debug: Test patch Embedding =================\n",
+    )
+
+    ## 2. Load Model: torch.hub 모델 로드 + 체크포인트 주입
     # DINOv3 모델 로드 후 평가 모드 설정
-    model = load_dinov3_model().to(device).eval()
+    model, _ = load_model(REPO_DIR, HUB_ENTRY, CKPT_PATH, device)
 
     ## 3. Load Image: imatch.load_image_tensor로 원본 텐서 확보
     # 이미지 로드 및 전처리
@@ -85,11 +72,8 @@ def main() -> None: # 반환값 없음
     # 모델의 패치 크기 가져오기
     patch = model.patch_embed.patch_size 
 
-    # 이미지 크기
-    desired_size = IMAGE_SIZE
-
-    # 패치 크기에 맞게 이미지 크기 조정 (desired_size: 이미지크기, patch[0]: 패치 크기)
-    patch_multiple = math.floor(desired_size / patch[0])
+    # 패치 크기에 맞게 이미지 크기 조정 (varTargetRes: 목표 해상도, patch[0]: 패치 크기)
+    patch_multiple = math.floor(varTargetRes / patch[0])
 
     ## 4. Build Preprocess: 패치 크기 기반 transform 빌드, imatch.tfms.build_transform 사용
     # 이미지 전처리 변환 빌드
@@ -126,12 +110,12 @@ def main() -> None: # 반환값 없음
             print("patch grid shape:", tuple(patch_grid.shape))
 
     # 결과 저장 경로 준비
-    export_dir = P("/exports")
+    export_dir = Path("/exports")
     export_dir.mkdir(parents=True, exist_ok=True)
     global_npy_path = export_dir / f"{FILE_NAME}.npy"
     global_csv_path = export_dir / f"{FILE_NAME}.csv"
-    patch_tokens_path = export_dir / f"{FILE_NAME}_tokens.npy"
-    patch_grid_path = export_dir / f"{FILE_NAME}_grid.npy"
+    patch_tokens_path = export_dir / f"patch_tokens_{FILE_NAME}.npy"
+    patch_grid_path = export_dir / f"patch_grid_{FILE_NAME}.npy"
 
     # 글로벌 벡터 저장 (기존 동작 유지)
     global_arr = global_vec.numpy()

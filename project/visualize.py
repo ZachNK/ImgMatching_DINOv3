@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from imatch.env import MATCH_ROOT, VIS_ROOT
+from imatch.paths import MATCH_ROOT, VIS_ROOT
 
 
 # ---------- OpenCV RANSAC 플래그 탐색 ----------

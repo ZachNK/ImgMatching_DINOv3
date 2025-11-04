@@ -19,12 +19,11 @@ import numpy as np
 import torch
 
 from imatch.cli_utils import bounded_float, bounded_int
-from imatch.env import REPO_DIR, IMG_ROOT, EMBED_ROOT
 from imatch.features import apply_keypoint_threshold, cosine_similarity, extract_global_feature, extract_patch_tokens
 from imatch.io_images import enumerate_pairs, load_image_tensor, scan_images_by_regex
 from imatch.matching import compute_matches_mutual_knn, enforce_unique_matches, grid_side, subsample_tokens
 from imatch.models import load_model
-from imatch.paths import match_root, out_dir_for_pair, out_name_for_pair
+from imatch.paths import REPO_DIR, IMG_ROOT, EMBED_ROOT, MATCH_ROOT
 from imatch.registries import WEIGHT_FILES, WEIGHT_GROUPS, resolve_weight_paths
 from imatch.tfms import build_transform
 
@@ -197,7 +196,7 @@ def main():
                     repo_dir=str(REPO_DIR),
                     img_root=str(IMG_ROOT),
                     embed_root=str(EMBED_ROOT),
-                    match_root=str(match_root()),
+                    match_root=str(MATCH_ROOT),
                     ckpt=str(ckpt),
                     hub_model=hub_name,
                     device=args.device,
@@ -222,9 +221,9 @@ def main():
                 if patch is not None:
                     payload["patch"] = patch
 
-                out_dir = out_dir_for_pair(w_alias, a_key)
+                out_dir = MATCH_ROOT / f"{w_alias}_{a_key.split(".")[0]}_{a_key.split(".")[1]}" 
                 out_dir.mkdir(parents=True, exist_ok=True)
-                out_name = out_name_for_pair(w_alias, a_key, b_key)
+                out_name = f"{w_alias}_{a_key}_{b_key}"
                 out_path = out_dir / f"{out_name}.json"
                 out_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
                 print(f"[saved] {out_path}")

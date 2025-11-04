@@ -6,7 +6,7 @@ Helpers for building CLI argument parsers.
 import argparse
 from typing import Callable
 
-
+# e.g. bounded_float(low=0.0, high=1.0) -> 
 def bounded_float(low: float, high: float) -> Callable[[str], float]:
     """
     Return an argparse type validator enforcing low <= value <= high.

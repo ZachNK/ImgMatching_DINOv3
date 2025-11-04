@@ -1,117 +1,45 @@
 """Compute DINOv3 patch-level cosine similarity maps and store them as NumPy files."""
-
 from __future__ import annotations
-
-import math
 import warnings
-from pathlib import Path
+import os
+import math
 import json
-import numpy as np
 import torch
 import torch.nn.functional as F
+import numpy as np
+from pathlib import Path
 from typing import List, Dict
-
-from imatch.features import extract_patch_tokens, reshape_patch_tokens_to_grid
+from imatch.features import (
+    extract_global_feature,
+    extract_patch_tokens,
+    reshape_patch_tokens_to_grid,
+)
+from imatch.paths import img_path, ckpt_path, file_prefix, DATASET_ROOT, EXPORT_ROOT
+from imatch.models import load_model
 from imatch.io_images import load_image_tensor
 from imatch.tfms import build_transform
 
+# 백본 모델, 체크포인트 경로, 이미지 경로, 허브 엔트리 이름, 이미지 크기 설정   
 # ==== custom ====
-varH = 300
-varI = 1
-varKEY = "vits16"
-varSIZE = 1024
-
-""" >>>> Weight Key: HUB_ENTRY
-"vit7b16": "dinov3_vit7b16",
-"vitb16": "dinov3_vitb16",
-"vith16+": "dinov3_vith16plus",
-"vitl16": "dinov3_vitl16",
-"vits16": "dinov3_vits16",
-"vits16+": "dinov3_vits16plus",
-
-"cxBase": "convnext_base",
-"cxLarge": "convnext_large",
-"cxSmall": "convnext_small",
-"cxTiny": "convnext_tiny",
-
-"vit7b16sat": "dinov3_vit7b16",
-"vitl16sat": "dinov3_vitl16",
+# 변경 변수 설정
+varAltitude = 400 # 이미지 높이
+varIndex = 100 # 이미지 인덱스
+varWeight = "vits16+" # 모델 키
+varTargetRes = 1024 # 최대 목표 해상도
+"""
+"vit7b16", "vitb16", "vith16+", "vitl16", "vits16", "vits16+"
+"cxBase", "cxLarge", "cxSmall", "cxTiny"
+"vit7b16sat", "vitl16sat" 
 """
 # ==== custom ====
 
-# ==== DECODING ====
-JSON = Path("/workspace/project/json/data_key.json")
-with open(JSON, 'r') as s: file = json.load(s)
-IMAGE_KEY = file[list(file.keys())[0]]
-MODEL_KEY = file[list(file.keys())[1]]
+HUB_ENTRY = ckpt_path(varWeight)[0]
+CKPT_PATH = ckpt_path(varWeight)[1]
+IMG_DIR_NAME = img_path(varAltitude, varIndex)
 
-def img_path(alt: int, img: int) -> str:
-    fld = "_".join([[k for k in IMAGE_KEY][9-int(alt/50)], str(alt)])
-    dts = "_".join([fld, '%04d'%img])
-    result = "/".join([fld, dts])
-    return result
-
-def ckpt_path(key: str) -> List[str]:
-    for p in MODEL_KEY:
-        for models in list(MODEL_KEY[p].keys()):
-            if key == models:
-                folderName = p
-                hubEntry = MODEL_KEY[p][models][0]
-                fileName = MODEL_KEY[p][models][1]                
-    result = [hubEntry, "/".join(["/opt","weights", folderName, fileName])]
-    return result
-
-IMG_DIR_NAME = img_path(varH, varI)
-HUB_ENTRY = ckpt_path(varKEY)[0]
-CKPT_PATH = ckpt_path(varKEY)[1]
-lst = IMG_DIR_NAME.split("/")[-1].split("_")
-if len(lst) < 3:
-    raise ValueError(f"Expected at least three underscore-separated tokens in {IMG_DIR_NAME!r}.")
 REPO_DIR = Path("/workspace/dinov3")
-DATASET_ROOT = Path("/opt/datasets")
-EXPORT_ROOT = Path("/exports")
-IMAGE_PATH = DATASET_ROOT / f"{IMG_DIR_NAME}.jpg"
-FILE_NAME = f"global_feature_{HUB_ENTRY}_{lst[1]}_{lst[2]}"
-FILE_PREFIX = f"{HUB_ENTRY}_{lst[1]}_{lst[2]}"
-# ==== DECODING ====
-
-# ====DEBUGING=======
-# print("REPO_DIR: ", REPO_DIR, "HUB_ENTRY: ", HUB_ENTRY, "CKPT_PATH: ", CKPT_PATH)
-
-# ====DEBUGING=======
-
-def load_dinov3_model(repo_dir: str, hub_entry: str, ckpt_path: str, device: torch.device) -> torch.nn.Module:
-    """
-    torch.hub에서 DINOv3 모델을 불러오고, 체크포인트를 로드해 키를 정리한 뒤 지정한 장치(GPU/CPU)로 올림.
-
-    입력: 
-    repo_dir: Path(DINOv3 모델 경로), hub_entry: str(백본 모델명), ckpt_path: Path(백본 모델 파일), device: torch.device(CPU/GPU 대상).
-    
-    출력: 
-    torch.nn.Module를 반환하며, 누락/예상치 못한 키를 로그로 출력.
-    """
-    warnings.filterwarnings("ignore", category=UserWarning)
-
-    model = torch.hub.load(repo_dir.as_posix(), hub_entry, source="local", trust_repo=True, pretrained=False)
-
-    map_location = device if device.type == "cpu" else torch.device(device.type, device.index or 0)
-    try:
-        state = torch.load(ckpt_path, map_location=map_location, weights_only=True)
-    except TypeError:
-        state = torch.load(str(ckpt_path), map_location="cpu")
-
-    if isinstance(state, dict) and "state_dict" in state:
-        state = state["state_dict"]
-
-    cleaned = {k[7:] if k.startswith("module.") else k: v for k, v in state.items()}
-    missing, unexpected = model.load_state_dict(cleaned, strict=False)
-    if missing:
-        print(f"[ckpt][warn] missing keys: {len(missing)}")
-    if unexpected:
-        print(f"[ckpt][warn] unexpected keys: {len(unexpected)}")
-
-    return model.to(device).eval()
-
+IMAGE_PATH = DATASET_ROOT / f"{IMG_DIR_NAME[0]}/{IMG_DIR_NAME[1]}.jpg"
+FILE_NAME = f"global_feature_{HUB_ENTRY}_{file_prefix(varAltitude, varIndex)}"
 
 def get_patch_size(model: torch.nn.Module) -> int:
     """
@@ -154,13 +82,13 @@ def export_outputs(
     grid_hw가 주어지면 4차원 텐서로 재구성한 patch_cosine_grid_{FILE_PREFIX}.npy도 추가 저장.
     """
     EXPORT_ROOT.mkdir(parents=True, exist_ok=True)
-    cosine_path = EXPORT_ROOT / f"patch_cosine_map_{FILE_PREFIX}.npy"
+    cosine_path = EXPORT_ROOT / f"FTM_cosine_map_{FILE_NAME}.npy"
     np.save(cosine_path, cosine_map)
     print(f"[saved] cosine map -> {cosine_path}")
 
     if grid_hw is not None:
         reshaped = cosine_map.reshape(grid_hw[0], grid_hw[1], grid_hw[0], grid_hw[1])
-        reshaped_path = EXPORT_ROOT / f"patch_cosine_grid_{FILE_PREFIX}.npy"
+        reshaped_path = EXPORT_ROOT / f"FTM_cosine_grid_{FILE_NAME}.npy"
         np.save(reshaped_path, reshaped)
         print(f"[saved] cosine grid -> {reshaped_path}")
 
@@ -239,20 +167,22 @@ def main() -> None:
 
     print(
         "================= Debug: Test Feature Map =================\n", 
-        "REPO_DIR: ", REPO_DIR, "\n", 
-        "IMAGE_PATH: ", IMAGE_PATH, "\n",
-        "HUB_ENTRY: ", HUB_ENTRY, "\n", 
-        "CKPT_PATH: ", CKPT_PATH, "\n", 
-        "device: ", device, 
-        "\n================= Debug: Test Feature Map =================\n"
+        f"REPO_DIR: {REPO_DIR}\n", 
+        f"IMAGE_PATH: {IMAGE_PATH}\n",
+        f"HUB_ENTRY: {HUB_ENTRY}\n", 
+        f"CKPT_PATH: {CKPT_PATH}\n", 
+        f"device: {device}\n",
+        f"export directory: {EXPORT_ROOT}/FTM_cosine_grid_{FILE_NAME}.npy\n"
+        f"export directory: {EXPORT_ROOT}/FTM_cosine_map_{FILE_NAME}.npy\n"
+        "================= Debug: Test Feature Map =================\n"
         )
 
-    model = load_dinov3_model(REPO_DIR, HUB_ENTRY, CKPT_PATH, device)
+    model, _ = load_model(REPO_DIR, HUB_ENTRY, CKPT_PATH, device)
 
     generate_patch_cosine(
         model=model,
         image_path=IMAGE_PATH,
-        image_size=varSIZE,
+        image_size=varTargetRes,
         device=device,
     )
 
