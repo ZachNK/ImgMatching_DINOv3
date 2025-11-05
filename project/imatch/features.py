@@ -3,6 +3,14 @@ import math
 import torch
 from typing import Optional, Tuple
 
+"""
+이미지 특징 추출 관련 유틸리티 함수들.
+- 글로벌 특징 벡터 추출: extract_global_feature(model: torch.nn.Module, x: torch.Tensor, device: str) -> torch.Tensor
+- 패치 토큰 추출: extract_patch_tokens(model: torch.nn.Module, x: torch.Tensor, device: str) -> Optional[torch.Tensor]
+- 코사인 유사도 계산: cosine_similarity(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor
+- 키포인트 임계값 적용: apply_keypoint_threshold(keypoints: torch.Tensor, scores: torch.Tensor, threshold: float) -> torch.Tensor
+- 패치 토큰 격자 재배열: reshape_patch_tokens_to_grid(tokens: torch.Tensor, grid_size: Tuple[int, int]) -> torch.Tensor 
+"""
 
 @torch.no_grad()
 def extract_global_feature(model: torch.nn.Module, x: torch.Tensor, device: str) -> torch.Tensor:

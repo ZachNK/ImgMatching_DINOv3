@@ -1,24 +1,86 @@
-import numpy as np 
-import torch 
-import torch.nn.functional as F 
+"""
+Generate dense feature visualisations from the exported patch grids.
+
+The logic is wrapped in generate_dense_feature so it can be reused in batch
+runs while keeping the original single-run behaviour.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn.functional as F
 from PIL import Image
-name = "patch_feature_dinov3_vitb16_300_0001_grid"
-grid = torch.from_numpy(np.load(f"/exports/{name}.npy"))  # (64, 64, 1024)
-flat = grid.reshape(-1, grid.shape[-1])  # (4096, 1024)
 
-feat = flat - flat.mean(dim=0, keepdim=True)
-u, s, v = torch.pca_lowrank(feat, q=3)   # v: (1024, 3)
+from imatch.paths import EXPORT_ROOT, ckpt_path, file_prefix
 
-proj = feat @ v[:, :3]                   # (4096, 3)
+varAltitude = 100
+varIndex = 1
+varWeight = "vits16"
 
-rgb = proj.reshape(grid.shape[0], grid.shape[1], 3).numpy()
-rgb -= rgb.min()
-rgb /= (rgb.max() + 1e-6)
-
-rgb = torch.from_numpy(rgb).permute(2, 0, 1).unsqueeze(0)  # (1, 3, 64, 64)
-rgb_up = F.interpolate(rgb, size=(1024, 1024), mode='bilinear', align_corners=False)
-rgb_up = rgb_up.squeeze(0).permute(1, 2, 0).numpy()
+_EXPORT_SUBDIR = Path("dinov3_debug/Test_global_embedding+dense_feature/1106")
+_DENSE_SUBDIR = _EXPORT_SUBDIR / "DenseFT"
 
 
-img = Image.fromarray((rgb_up * 255).astype("uint8"))
-img.save(f"/exports/{name}_dinov3_dense_features.png")
+def _build_context(altitude: int, index: int, weight: str) -> dict[str, Path | str]:
+    """Prepare the shared paths used throughout the dense feature pipeline."""
+    hub_entry, _ = ckpt_path(weight)
+    prefix = file_prefix(altitude, index)
+    export_root = EXPORT_ROOT / _EXPORT_SUBDIR
+    dense_root = EXPORT_ROOT / _DENSE_SUBDIR
+
+    return {
+        "hub_entry": hub_entry,
+        "prefix": prefix,
+        "grid_path": export_root / f"GF_grid_{hub_entry}_{prefix}.npy",
+        "dense_path": dense_root
+        / f"GF_grid_{hub_entry}_{prefix}_dinov3_dense_features.png",
+    }
+
+
+def generate_dense_feature(altitude: int, index: int, weight: str) -> None:
+    """Load the patch grid exported by Test_global_embedding and save a PNG."""
+    ctx = _build_context(altitude, index, weight)
+    grid_path = ctx["grid_path"]
+    dense_path = ctx["dense_path"]
+
+    if not grid_path.exists():
+        raise FileNotFoundError(
+            f"Patch grid not found for altitude={altitude}, index={index}, weight={weight}: {grid_path}"
+        )
+
+    dense_path.parent.mkdir(parents=True, exist_ok=True)
+
+    grid = torch.from_numpy(np.load(grid_path))  # (H, W, C)
+    flat = grid.reshape(-1, grid.shape[-1])  # (H*W, C)
+
+    feat = flat - flat.mean(dim=0, keepdim=True)
+    _, _, v = torch.pca_lowrank(feat, q=3)   # v: (C, 3)
+
+    proj = feat @ v[:, :3]                   # (H*W, 3)
+
+    rgb = proj.reshape(grid.shape[0], grid.shape[1], 3).numpy()
+    rgb -= rgb.min()
+    rgb /= (rgb.max() + 1e-6)
+
+    rgb = torch.from_numpy(rgb).permute(2, 0, 1).unsqueeze(0)  # (1, 3, H, W)
+    rgb_up = F.interpolate(rgb, size=(1024, 1024), mode="bilinear", align_corners=False)
+    rgb_up = rgb_up.squeeze(0).permute(1, 2, 0).numpy()
+
+    img = Image.fromarray((rgb_up * 255).astype("uint8"))
+    img.save(dense_path)
+    print(f"[saved] Dense feature image -> {dense_path}")
+
+
+def main() -> None:
+    generate_dense_feature(
+        altitude=varAltitude,
+        index=varIndex,
+        weight=varWeight,
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -1,67 +1,91 @@
 """
-DINOv3 torch.hub 모델을 직접 로드해서 단일 이미지를 추론하는 간단한 스크립트.
+Utility to extract DINOv3 global embeddings and patch tokens.
+
+This module now exposes run_test_global_embedding so the pipeline can be reused
+programmatically while keeping backwards compatibility with the previous CLI
+behaviour.
 """
 
 from __future__ import annotations
-import warnings
-import os
+
 import math
-import json
-import torch
-import numpy as np
 from pathlib import Path
-from typing import List, Dict
+from typing import Dict
+
+import numpy as np
+import torch
+
 from imatch.features import (
     extract_global_feature,
     extract_patch_tokens,
     reshape_patch_tokens_to_grid,
 )
-from imatch.paths import img_path, ckpt_path, file_prefix, DATASET_ROOT, EXPORT_ROOT
-from imatch.models import load_model
 from imatch.io_images import load_image_tensor
+from imatch.models import load_model
+from imatch.paths import (
+    DATASET_ROOT,
+    EXPORT_ROOT,
+    ckpt_path,
+    file_prefix,
+    img_path,
+)
 from imatch.tfms import build_transform
+from imatch.utils import progress_bar
 
-# 백본 모델, 체크포인트 경로, 이미지 경로, 허브 엔트리 이름, 이미지 크기 설정   
-# ==== custom ====
-# 변경 변수 설정
-varAltitude = 300 # 이미지 높이
-varIndex = 1 # 이미지 인덱스
-varWeight = "vit7b16" # 모델 키
-varTargetRes = 1024 # 최대 목표 해상도
-"""
-"vit7b16", "vitb16", "vith16+", "vitl16", "vits16", "vits16+"
-"cxBase", "cxLarge", "cxSmall", "cxTiny"
-"vit7b16sat", "vitl16sat" 
-"""
-# ==== custom ====
+# Default parameters kept for manual single-run usage.
+varAltitude = 100
+varIndex = 1
+varWeight = "vits16"
+varTargetRes = 1024
 
-HUB_ENTRY = ckpt_path(varWeight)[0]
-CKPT_PATH = ckpt_path(varWeight)[1]
-IMG_DIR_NAME = img_path(varAltitude, varIndex)
 REPO_DIR = Path("/workspace/dinov3")
-IMAGE_PATH = DATASET_ROOT / f"{IMG_DIR_NAME[0]}/{IMG_DIR_NAME[1]}.jpg"
-FILE_NAME = f"global_feature_{HUB_ENTRY}_{file_prefix(varAltitude, varIndex)}"
+_EXPORT_SUBDIR = Path("dinov3_debug/Test_global_embedding+dense_feature/1106")
 
 
-### 메인 함수: 모델 로드, 이미지 전처리, 특징 추출 및 저장
+def _build_context(altitude: int, index: int, weight: str) -> Dict[str, object]:
+    """Assemble frequently reused values for a single inference run."""
+    hub_entry, ckpt = ckpt_path(weight)
+    img_dir_a, img_dir_b = img_path(altitude, index)
+    prefix = file_prefix(altitude, index)
 
-def main() -> None: # 반환값 없음
-    ### 특징 벡터(배열)를 numpy 배열과 CSV로 저장
-    ### 0. Export Features: numpy 와 csv로 배열 저장
-    EXPORT_ROOT.mkdir(parents=True, exist_ok=True)
-    npy_path = EXPORT_ROOT / f"{FILE_NAME}.npy"
-    csv_path = EXPORT_ROOT / f"{FILE_NAME}.csv"
-    grid_path = EXPORT_ROOT / f"patch_grid_{FILE_NAME}.npy"
-    ## 1. Prepare Device: torch.device 선택
-    # 장치 설정 후 모델 로드: CUDA 사용 가능시 CUDA, 아니면 CPU
+    return {
+        "hub_entry": hub_entry,
+        "ckpt_path": ckpt,
+        "image_path": DATASET_ROOT / f"{img_dir_a}/{img_dir_b}.jpg",
+        "file_name": f"GF_{hub_entry}_{prefix}",
+        "grid_name": f"GF_grid_{hub_entry}_{prefix}",
+        "export_dir": EXPORT_ROOT / _EXPORT_SUBDIR,
+    }
+
+
+def run_test_global_embedding(
+    altitude: int,
+    index: int,
+    weight: str,
+    target_res: int = 1024,
+) -> None:
+    """Execute the full embedding pipeline for the given parameters."""
+    ctx = _build_context(altitude, index, weight)
+    hub_entry = ctx["hub_entry"]
+    ckpt = ctx["ckpt_path"]
+    image_path = ctx["image_path"]
+    file_name = ctx["file_name"]
+    grid_name = ctx["grid_name"]
+    export_dir = ctx["export_dir"]
+
+    export_dir.mkdir(parents=True, exist_ok=True)
+    npy_path = export_dir / f"{file_name}.npy"
+    csv_path = export_dir / f"{file_name}.csv"
+    grid_path = export_dir / f"{grid_name}.npy"
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(
         "\n================= Debug: Test Global Embedding =================\n",
         f"REPO_DIR: {REPO_DIR}\n",
-        f"IMAGE_PATH: {IMAGE_PATH}\n",
-        f"HUB_ENTRY: {HUB_ENTRY}\n",
-        f"CKPT_PATH: {CKPT_PATH}\n",
+        f"IMAGE_PATH: {image_path}\n",
+        f"HUB_ENTRY: {hub_entry}\n",
+        f"CKPT_PATH: {ckpt}\n",
         f"device: {device}\n",
         f"Test Global embedding DINOv3 numpy array -> {npy_path}\n",
         f"Test Global embedding DINOv3 csv row     -> {csv_path}\n",
@@ -69,40 +93,41 @@ def main() -> None: # 반환값 없음
         "\n================= Debug: Test Global Embedding =================\n",
     )
 
-    ## 2. Load Model: torch.hub 모델 로드 + 체크포인트 주입
-    # DINOv3 모델 로드 후 평가 모드 설정
-    model, _ = load_model(REPO_DIR, HUB_ENTRY, CKPT_PATH, device)
+    print("Loading model and checkpoint...\n")
+    model, _ = progress_bar(load_model, REPO_DIR, hub_entry, ckpt, device)
 
-    ## 3. Load Image: imatch.load_image_tensor로 원본 텐서 확보
-    # 이미지 로드 및 전처리
-    img_tensor = load_image_tensor(IMAGE_PATH.as_posix())
+    print("Model and checkpoint loaded.\n")
 
-    # 모델의 패치 크기 가져오기
-    patch = model.patch_embed.patch_size 
+    img_tensor = progress_bar(load_image_tensor, image_path.as_posix())
+    print("Image loaded.\n")
 
-    # 패치 크기에 맞게 이미지 크기 조정 (varTargetRes: 목표 해상도, patch[0]: 패치 크기)
-    patch_multiple = math.floor(varTargetRes / patch[0])
+    patch = model.patch_embed.patch_size
+    patch_multiple = math.floor(target_res / patch[0])
+    print(
+        f"Model patch size: {patch}\n"
+        f"Image resized to: {patch_multiple * patch[0]}x{patch_multiple * patch[1]}\n"
+    )
 
-    ## 4. Build Preprocess: 패치 크기 기반 transform 빌드, imatch.tfms.build_transform 사용
-    # 이미지 전처리 변환 빌드
-    transform = build_transform(patch_size=patch[0], patch_multiple=patch_multiple, interpolation="bicubic", normalize=True)
+    transform = progress_bar(
+        build_transform,
+        patch_size=patch[0],
+        patch_multiple=patch_multiple,
+        interpolation="bicubic",
+        normalize=True,
+    )
+    print(f"transform built: {transform}\n")
 
-    print("img_tensor:", img_tensor.shape)
+    input_tensor = progress_bar(transform, img_tensor).unsqueeze(0)
+    print("Input tensor prepared:", input_tensor.shape, "\n")
 
-    # 전처리된 이미지 텐서에 배치 차원 추가 후 장치로 이동
-    input_tensor = transform(img_tensor).unsqueeze(0).to(device)
-
-    ### 특징 추출: 글로벌 특징 벡터 & 패치 토큰 추출
-    ## 5. Run Inference: transform 적용, imatch.features.extract_global_feature 사용
+    print("Extracting global feature and patch tokens...\n")
     with torch.inference_mode():
-        # global_vec: 추출된 글로벌 특징 벡터
-        global_vec = extract_global_feature(model, input_tensor, str(device))
-        patch_tokens = extract_patch_tokens(model, input_tensor, str(device))
+        global_vec = progress_bar(extract_global_feature, model, input_tensor, device)
+        patch_tokens = progress_bar(extract_patch_tokens, model, input_tensor, device)
 
-    ### 결과 출력 및 저장
-    # ※※※global_vec: 특징 벡터 ※※※
-    # CPU로 이동 후 그래프 분리
+    print("================= Feature extraction completed =================\n")
     global_vec = global_vec.detach().cpu()
+
     patch_grid = None
     if patch_tokens is not None:
         patch_tokens = patch_tokens.detach().cpu()
@@ -113,9 +138,8 @@ def main() -> None: # 반환값 없음
     else:
         print("[warn] patch tokens could not be extracted.")
 
-    # 상태 출력
+    print("================= Saving features =================\n")
     print("Global feature shape:", tuple(global_vec.shape))
-    # 값 출력 (리스트 형태)
     print("Global feature:", global_vec.tolist())
 
     if patch_tokens is not None:
@@ -123,21 +147,27 @@ def main() -> None: # 반환값 없음
         if patch_grid is not None:
             print("Patch grid shape:", tuple(patch_grid.shape))
 
-
-    
-
-    # numpy로 저장
+    print("\n================= Exporting features =================\n")
     global_arr = global_vec.numpy()
-    np.save(npy_path, global_arr)
-    # csv로 저장
-    np.savetxt(csv_path, global_arr[None, :], delimiter=",")
+    progress_bar(np.save, npy_path, global_arr)
+    progress_bar(np.savetxt, csv_path, global_arr[None, :], delimiter=",")
 
-    # 저장완료메세지 출력
+    print("\n================= Feature export completed =================\n")
     print(f"[saved] Test Global embedding DINOv3 numpy array -> {npy_path}")
     print(f"[saved] Test Global embedding DINOv3 csv row     -> {csv_path}")
     if patch_grid is not None:
         np.save(grid_path, patch_grid.numpy())
-        print(f"[saved] Test Global patch grid numpy array           -> {grid_path}")
+        print(f"[saved] Test Global patch grid numpy array   -> {grid_path}")
+
+
+def main() -> None:
+    run_test_global_embedding(
+        altitude=varAltitude,
+        index=varIndex,
+        weight=varWeight,
+        target_res=varTargetRes,
+    )
+
 
 if __name__ == "__main__":
     main()

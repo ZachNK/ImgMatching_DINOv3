@@ -14,6 +14,17 @@ def build_transform(
     interpolation: str = "bicubic",
     normalize: bool = True,
 ):
+    """
+    build_transform() 함수는 이미지 전처리를 위한 torchvision.transforms.Compose 객체를 생성.
+    입력: 패치 크기, 패치 배수, 보간법, 정규화 여부: data type: int, int, str, bool
+    출력: torchvision.transforms.Compose 객체: data type: transforms.Compose
+    1. 목표 크기 계산: patch_size * patch_multiple
+    2. 변환 단계 구성:
+       - 이미지 타입 변환 (torch.float32)
+       - 크기 조정 (목표 크기, 지정된 보간법 사용, 앤티앨리어싱 적용)
+       - (선택적) 정규화 (ImageNet 평균/표준편차 사용)
+    3. transforms.Compose 객체 반환
+    """
     target_size = patch_size * patch_multiple
 
     transforms_steps = [

@@ -1,43 +1,26 @@
 # project/imatch/paths.py
 """
 Utility helpers for naming pair-match output files.
+REPO_DIR: 저장소 디렉터리 경로
+IMG_ROOT: 이미지 루트 디렉터리 경로
+EMBED_ROOT: 임베드 출력 루트 디렉터리 경로
+MATCH_ROOT: 매칭 출력 루트 디렉터리 경로
+VIS_ROOT: 시각화 출력 루트 디렉터리 경로
+DINOV_BLOCK_NET: 네트워크 차단 설정
+JSON: 데이터 키 JSON 파일 경로
+IMAGE_KEY: 이미지 키
+MODEL_KEY: 모델 키
+DATASET_ROOT: 데이터셋 루트 디렉터리 경로
+EXPORT_ROOT: 내보내기 루트 디렉터리 경로
+img_path(alt: int, img: int) -> List[str]: 이미지 경로 생성
+ckpt_path(key: str) -> List[str]: 체크포인트 경로 생성
+file_prefix(imgAlt: str, imgIndex: str) -> str: 파일 접두사 생성    
 """
 from operator import index
 import os
 import json
 from pathlib import Path
 from typing import Optional, List, Dict
-
-# def getenv(key: str, default: Optional[str] = None, required: bool = False) -> str:
-#     """
-#     Environment loader with optional required enforcement.
-#     """
-#     value = os.getenv(key, default)
-#     if required and (value is None or str(value).strip() == ""):
-#         raise SystemExit(f"Missing env: {key}")
-#     return value
-
-
-# def split_key(key: str) -> tuple[str, str]:
-#     alt, frame = key.split(".")
-#     return alt, frame
-
-
-# def out_dir_for_pair(weight_alias: str, key_a: str) -> Path:
-#     alt, frame = split_key(key_a)
-#     return MATCH_ROOT / f"{weight_alias}_{alt}_{frame}"
-
-
-# def out_name_for_pair(weight_alias: str, key_a: str, key_b: str) -> str:
-#     return f"{weight_alias}_{key_a}_{key_b}"
-
-# def model_path(image_height: int, image_index: int, model_key: str, ) -> Path:
-#     """
-#     Generate the model checkpoint path based on image height, index, and model key.
-#     """
-#     folder_name = f"model_{image_height}_{image_index}"
-#     file_name = f"{model_key}_checkpoint.pth"
-#     return MATCH_ROOT / "models" / folder_name / file_name
 
 # Base directories (docker-compose.yml/.env inject absolute paths)
 REPO_DIR = Path(os.getenv("REPO_DIR"))
@@ -56,12 +39,29 @@ DATASET_ROOT = Path("/opt/datasets")
 EXPORT_ROOT = Path("/exports")
 
 def img_path(alt: int, img: int) -> List[str]:
+    """
+    data_key.json을 참조하여 이미지 데이터 경로명 생성
+    e.g. img_path(300, 1) -> ["250912154506_300", "250912154506_300_0001"]
+    - 입력:
+      alt: int — 이미지 고도
+      img: int — 이미지 인덱스
+    - 출력:
+      List[str] — [폴더 이름, 파일 이름] 형식의 이미지 경로 리스트
+    """
     fld = "_".join([[k for k in IMAGE_KEY][9-int(alt/50)], str(alt)])
     dts = "_".join([fld, '%04d'%img])
     result = [fld, dts]
     return result
 
 def ckpt_path(key: str) -> List[str]:
+    """
+    data_key.json을 참조하여 모델 체크포인트 경로명 생성
+    e.g. ckpt_path("vitb16") -> ["dinov3_vitb16", "dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth"]
+    - 입력:
+      key: str — 모델 키
+    - 출력:
+      List[str] — [허브 엔트리 이름, 체크포인트 파일 경로] 형식의 리스트
+    """
     for p in MODEL_KEY:
         for models in list(MODEL_KEY[p].keys()):
             if key == models:
@@ -72,7 +72,16 @@ def ckpt_path(key: str) -> List[str]:
     return result
 
 def file_prefix(imgAlt: str, imgIndex: str) -> str:
-    return f"{imgAlt}_{imgIndex}"
+    """
+    파일 접두사 생성
+    e.g. file_prefix("300", "1") -> "300_0001"
+    - 입력:
+      imgAlt: str — 이미지 고도
+      imgIndex: str — 이미지 인덱스
+    - 출력:
+      str — 접두사 문자열
+    """
+    return f"{imgAlt}_{'%04d'%imgIndex}"
 
 
 

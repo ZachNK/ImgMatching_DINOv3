@@ -2,7 +2,7 @@
 run.py
 - DINOv3 기반 이미지 매칭 배치 실행기
 - 특징:
-  * -a/-b 생략 시 전체 이미지 All-vs-All (N×(N-1))
+  * -a/-b 생략 시 전체 이미지 All-vs-All (N x (N-1))
   * --weights / --group / --all-weights 로 가중치 선택
   * Advanced setting: match/keypoint/line threshold + max features
   * 요청한 폴더 구조로 JSON 저장:
@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from imatch.cli_utils import bounded_float, bounded_int
+from imatch.utils import bounded_float, bounded_int
 from imatch.features import apply_keypoint_threshold, cosine_similarity, extract_global_feature, extract_patch_tokens
 from imatch.io_images import enumerate_pairs, load_image_tensor, scan_images_by_regex
 from imatch.matching import compute_matches_mutual_knn, enforce_unique_matches, grid_side, subsample_tokens

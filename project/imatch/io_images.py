@@ -7,6 +7,10 @@ from PIL import Image
 import torch
 from torchvision import transforms
 
+"""
+이미지 파일 I/O 관련 유틸리티 함수들.
+"""
+
 def parse_pair(s: str) -> Tuple[int, str]:
     """
     'ALT.FRAME' 형태 파싱: '400.0001' -> (400, '0001')

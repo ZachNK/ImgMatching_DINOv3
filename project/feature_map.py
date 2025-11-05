@@ -82,13 +82,13 @@ def export_outputs(
     grid_hw가 주어지면 4차원 텐서로 재구성한 patch_cosine_grid_{FILE_PREFIX}.npy도 추가 저장.
     """
     EXPORT_ROOT.mkdir(parents=True, exist_ok=True)
-    cosine_path = EXPORT_ROOT / f"FTM_cosine_map_{FILE_NAME}.npy"
+    cosine_path = EXPORT_ROOT / f"FTM_patch_cosine_map_{FILE_NAME}.npy"
     np.save(cosine_path, cosine_map)
     print(f"[saved] cosine map -> {cosine_path}")
 
     if grid_hw is not None:
         reshaped = cosine_map.reshape(grid_hw[0], grid_hw[1], grid_hw[0], grid_hw[1])
-        reshaped_path = EXPORT_ROOT / f"FTM_cosine_grid_{FILE_NAME}.npy"
+        reshaped_path = EXPORT_ROOT / f"FTM_patch_cosine_grid_{FILE_NAME}.npy"
         np.save(reshaped_path, reshaped)
         print(f"[saved] cosine grid -> {reshaped_path}")
 
