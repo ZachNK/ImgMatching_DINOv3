@@ -11,15 +11,21 @@ import torch
 import numpy as np
 from pathlib import Path
 from typing import List, Dict
-from imatch.features import (
-    extract_global_feature,
-    extract_patch_tokens,
-    reshape_patch_tokens_to_grid,
+from imatch.pretrained import pretrained_model
+from imatch.imageprocessing import build_transform
+from imatch.extracting import (
+    global_embedding,
+    patch_embedding,
+    patch2grid,
 )
-from imatch.paths import ckpt_path, file_prefix, DATASET_ROOT, EXPORT_ROOT
-from imatch.models import load_model
-from imatch.io_images import load_image_tensor
-from imatch.tfms import build_transform
+from imatch.loading import (
+    DATASET_ROOT, 
+    EXPORT_ROOT, 
+    weights_path, 
+    file_prefix, 
+    load_image
+)
+
 
 # 백본 모델, 체크포인트 경로, 이미지 경로, 허브 엔트리 이름, 이미지 크기 설정   
 # ==== custom ====
@@ -35,8 +41,8 @@ varTargetRes = 1024 # 최대 목표 해상도
 """
 # ==== custom ====
 
-HUB_ENTRY = ckpt_path(varWeight)
-CKPT_PATH = ckpt_path(varWeight)[1]
+HUB_ENTRY = weights_path(varWeight)
+WEIGHT_PATH = weights_path(varWeight)[1]
 IMG_DIR_NAME = file_prefix(varAltitude, varIndex)
 
 REPO_DIR = Path("/workspace/dinov3")
@@ -56,18 +62,18 @@ def main() -> None: # 반환값 없음
         "REPO_DIR: ", REPO_DIR, "\n",
         "IMAGE_PATH: ", IMAGE_PATH, "\n",
         "HUB_ENTRY: ", HUB_ENTRY, "\n",
-        "CKPT_PATH: ", CKPT_PATH, "\n",
+        "WEIGHT_PATH: ", WEIGHT_PATH, "\n",
         "device: ", device,
         "\n================= Debug: Test patch Embedding =================\n",
     )
 
     ## 2. Load Model: torch.hub 모델 로드 + 체크포인트 주입
     # DINOv3 모델 로드 후 평가 모드 설정
-    model, _ = load_model(REPO_DIR, HUB_ENTRY, CKPT_PATH, device)
+    model, _ = pretrained_model(REPO_DIR, HUB_ENTRY, WEIGHT_PATH, device)
 
     ## 3. Load Image: imatch.load_image_tensor로 원본 텐서 확보
     # 이미지 로드 및 전처리
-    img_tensor = load_image_tensor(IMAGE_PATH.as_posix())
+    img_tensor = load_image(IMAGE_PATH.as_posix())
 
     # 모델의 패치 크기 가져오기
     patch = model.patch_embed.patch_size 
@@ -77,7 +83,7 @@ def main() -> None: # 반환값 없음
 
     ## 4. Build Preprocess: 패치 크기 기반 transform 빌드, imatch.tfms.build_transform 사용
     # 이미지 전처리 변환 빌드
-    transform = build_transform(patch_size=patch[0], patch_multiple=patch_multiple, interpolation="bicubic", normalize=True)
+    transform = build_transform(patch_size=patch[0], patch_multiple=patch_multiple, interpolation="bicubic", normalize=weights_path(varWeight)[2])
 
     print("img_tensor:", img_tensor.shape)
 
@@ -86,8 +92,8 @@ def main() -> None: # 반환값 없음
 
     ### 특징 추출: 글로벌 특징 벡터 & 패치 토큰 추출
     with torch.inference_mode():
-        global_vec = extract_global_feature(model, input_tensor, str(device))
-        patch_tokens = extract_patch_tokens(model, input_tensor, str(device))
+        global_vec = global_embedding(model, input_tensor, str(device))
+        patch_tokens = patch_embedding(model, input_tensor, str(device))
 
     # 추출된 텐서 CPU 이동
     global_vec = global_vec.detach().cpu()
@@ -96,7 +102,7 @@ def main() -> None: # 반환값 없음
     if patch_tokens is not None:
         patch_tokens_cpu = patch_tokens.detach().cpu()
         try:
-            patch_grid = reshape_patch_tokens_to_grid(patch_tokens_cpu)
+            patch_grid = patch2grid(patch_tokens_cpu)
         except ValueError as err:
             print(f"[warn] patch grid reshape failed: {err}")
     else:

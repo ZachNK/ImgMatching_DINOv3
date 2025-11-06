@@ -1,11 +1,9 @@
 from __future__ import annotations
-
 import sys
+import numpy as np
+import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import List, Tuple
-
-import matplotlib.pyplot as plt
-import numpy as np
 from PIL import Image
 
 MAX_SELECTIONS = 100

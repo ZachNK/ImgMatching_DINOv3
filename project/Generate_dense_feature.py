@@ -4,39 +4,39 @@ Generate dense feature visualisations from the exported patch grids.
 The logic is wrapped in generate_dense_feature so it can be reused in batch
 runs while keeping the original single-run behaviour.
 """
-
 from __future__ import annotations
-
-from pathlib import Path
-
 import numpy as np
 import torch
 import torch.nn.functional as F
+from pathlib import Path
 from PIL import Image
+from imatch.loading import (
+    EMBED_ROOT,
+    VIS_ROOT,
+    weights_path, 
+    file_prefix
+)
 
-from imatch.paths import EXPORT_ROOT, ckpt_path, file_prefix
+varAltitude = 400
+varIndex = 160
+varWeight = "cxLarge"
 
-varAltitude = 100
-varIndex = 1
-varWeight = "vits16"
-
-_EXPORT_SUBDIR = Path("dinov3_debug/Test_global_embedding+dense_feature/1106")
-_DENSE_SUBDIR = _EXPORT_SUBDIR / "DenseFT"
+_EXPORT_SUBDIR = EMBED_ROOT / varWeight # /exports/dinov3_embeds/vit7b16sat
+_DENSE_SUBDIR = VIS_ROOT / varWeight # /exports/dinov3_vis/vit7b16sat
 
 
 def _build_context(altitude: int, index: int, weight: str) -> dict[str, Path | str]:
     """Prepare the shared paths used throughout the dense feature pipeline."""
-    hub_entry, _ = ckpt_path(weight)
-    prefix = file_prefix(altitude, index)
-    export_root = EXPORT_ROOT / _EXPORT_SUBDIR
-    dense_root = EXPORT_ROOT / _DENSE_SUBDIR
+    hub_entry, _, dataset_type = weights_path(weight) # "dinov3_vitl16", "/opt/weights/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth", "SAT"
+    prefix = file_prefix(altitude, index) # "200_0150"
+    export_root = _EXPORT_SUBDIR  # "/exports/dinov3_debug/Test_global_embedding+dense_feature/1106" --> /exports/dinov3_embeds/vit7b16sat
+    dense_root = _DENSE_SUBDIR  # "/exports/dinov3_debug/Test_global_embedding+dense_feature/1106/DenseFT" --> /exports/dinov3_vis/vit7b16sat
 
     return {
-        "hub_entry": hub_entry,
-        "prefix": prefix,
-        "grid_path": export_root / f"GF_grid_{hub_entry}_{prefix}.npy",
-        "dense_path": dense_root
-        / f"GF_grid_{hub_entry}_{prefix}_dinov3_dense_features.png",
+        "hub_entry": hub_entry, # "dinov3_vitl16"
+        "prefix": prefix, # "200_0150"
+        "grid_path": export_root / f"Global_grid_{hub_entry}_{dataset_type}_{prefix}.npy", # "/exports/dinov3_embeds/vit7b16sat/Global_grid_dinov3_vitl16_SAT_200_0150.npy"
+        "dense_path": dense_root / f"Dense_Global_{hub_entry}_{dataset_type}_{prefix}.png", # "/exports/dinov3_vis/vit7b16sat/Dense_Global_dinov3_vitl16_SAT_200_0150.png"
     }
 
 

@@ -1,4 +1,4 @@
-# imatch/tfms.py
+# imatch/imageprocessing.py
 import math
 import torch
 from torchvision import transforms
@@ -12,7 +12,7 @@ def build_transform(
     patch_size: int,
     patch_multiple: int = 16,
     interpolation: str = "bicubic",
-    normalize: bool = True,
+    normalize: str = "vits16+",
 ):
     """
     build_transform() 함수는 이미지 전처리를 위한 torchvision.transforms.Compose 객체를 생성.
@@ -37,11 +37,20 @@ def build_transform(
         ),
     ]
 
-    if normalize:
+    if normalize == "LVD":
+        print("[imageprocessing] Normalization: web dataset (LVD-1689M)\n")
         transforms_steps.append(
             transforms.Normalize(
                 mean = [0.485, 0.456, 0.406],
                 std = [0.229, 0.224, 0.225],
+            )
+        )
+    else:
+        print("[imageprocessing] Normalization: satellite dataset (SAT-493M)\n")
+        transforms_steps.append(
+            transforms.Normalize(
+                mean = [0.430, 0.411, 0.296],
+                std = [0.213, 0.156, 0.143],
             )
         )
 

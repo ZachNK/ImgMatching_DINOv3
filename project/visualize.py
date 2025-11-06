@@ -10,15 +10,12 @@ import argparse
 import json
 import os
 import sys
-from pathlib import Path
-from typing import Iterable, List, Set, Tuple, Optional
-
 import cv2
 import numpy as np
+from pathlib import Path
+from typing import Iterable, List, Set, Tuple, Optional
 from PIL import Image
-
-from imatch.paths import MATCH_ROOT, VIS_ROOT
-
+from imatch.loading import MATCH_ROOT, VIS_ROOT
 
 # ---------- OpenCV RANSAC 플래그 탐색 ----------
 def _discover_homography_methods() -> Tuple[dict, str]:

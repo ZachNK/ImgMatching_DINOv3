@@ -4,20 +4,28 @@ import warnings
 import os
 import math
 import json
+import numpy as np
 import torch
 import torch.nn.functional as F
-import numpy as np
 from pathlib import Path
 from typing import List, Dict
-from imatch.features import (
-    extract_global_feature,
-    extract_patch_tokens,
-    reshape_patch_tokens_to_grid,
+from imatch.pretrained import pretrained_model
+from imatch.imageprocessing import build_transform
+from imatch.extracting import (
+    global_embedding,
+    patch_embedding,
+    patch2grid,
 )
-from imatch.paths import img_path, ckpt_path, file_prefix, DATASET_ROOT, EXPORT_ROOT
-from imatch.models import load_model
-from imatch.io_images import load_image_tensor
-from imatch.tfms import build_transform
+from imatch.loading import (
+    DATASET_ROOT, 
+    EXPORT_ROOT, 
+    img_path, 
+    weights_path, 
+    file_prefix, 
+    load_image
+
+)
+
 
 # 백본 모델, 체크포인트 경로, 이미지 경로, 허브 엔트리 이름, 이미지 크기 설정   
 # ==== custom ====
@@ -33,13 +41,13 @@ varTargetRes = 1024 # 최대 목표 해상도
 """
 # ==== custom ====
 
-HUB_ENTRY = ckpt_path(varWeight)[0]
-CKPT_PATH = ckpt_path(varWeight)[1]
+HUB_ENTRY = weights_path(varWeight)[0]
+CKPT_PATH = weights_path(varWeight)[1]
 IMG_DIR_NAME = img_path(varAltitude, varIndex)
 
 REPO_DIR = Path("/workspace/dinov3")
 IMAGE_PATH = DATASET_ROOT / f"{IMG_DIR_NAME[0]}/{IMG_DIR_NAME[1]}.jpg"
-FILE_NAME = f"global_feature_{HUB_ENTRY}_{file_prefix(varAltitude, varIndex)}"
+FILE_NAME = f"FTM_{HUB_ENTRY}_{file_prefix(varAltitude, varIndex)}"
 
 def get_patch_size(model: torch.nn.Module) -> int:
     """
@@ -118,7 +126,7 @@ def generate_patch_cosine(
     - export_outputs()을 호출해 /exports 폴더에 patch_cosine_map_{FILE_PREFIX}.npy와 (격자 정보가 있다면), patch_cosine_grid_{FILE_PREFIX}.npy를 저장.
 
     """
-    img_tensor = load_image_tensor(image_path.as_posix())
+    img_tensor = load_image(image_path.as_posix())
 
     patch_size = get_patch_size(model)
     patch_multiple = max(1, math.floor(image_size / patch_size))
@@ -126,12 +134,12 @@ def generate_patch_cosine(
         patch_size=patch_size,
         patch_multiple=patch_multiple,
         interpolation="bicubic",
-        normalize=True,
+        normalize=varWeight,
     )
 
     input_tensor = transform(img_tensor).unsqueeze(0).to(device)
     with torch.inference_mode():
-        tokens = extract_patch_tokens(model, input_tensor, str(device))
+        tokens = patch_embedding(model, input_tensor, str(device))
 
     if tokens is None:
         raise RuntimeError("Patch tokens could not be extracted from the model output.")
@@ -139,7 +147,7 @@ def generate_patch_cosine(
     tokens = tokens.detach()
 
     try:
-        tokens_grid = reshape_patch_tokens_to_grid(tokens)
+        tokens_grid = patch2grid(tokens)
         grid_hw = tokens_grid.shape[:2]
     except ValueError as err:
         tokens_grid = None
@@ -177,7 +185,7 @@ def main() -> None:
         "================= Debug: Test Feature Map =================\n"
         )
 
-    model, _ = load_model(REPO_DIR, HUB_ENTRY, CKPT_PATH, device)
+    model, _ = pretrained_model(REPO_DIR, HUB_ENTRY, CKPT_PATH, device)
 
     generate_patch_cosine(
         model=model,

@@ -8,7 +8,7 @@ from typing import Tuple
 
 """
 
-def compute_matches_mutual_knn(pa: np.ndarray, pb: np.ndarray, k: int = 5, topk: int = 200) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def matching_knn(pa: np.ndarray, pb: np.ndarray, k: int = 5, topk: int = 200) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     mutual k-NN 매칭:
     - a의 상위 k 이웃에 b가 포함되고 AND b의 상위 k 이웃에 a가 포함되면 매칭
@@ -52,13 +52,20 @@ def compute_matches_mutual_knn(pa: np.ndarray, pb: np.ndarray, k: int = 5, topk:
     order = np.argsort(-sim)[:keep]
     return ia[order], ib[order], sim[order]
 
-def enforce_unique_matches(
+def enforced_matching(
     ia: np.ndarray,
     ib: np.ndarray,
     sim: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Greedy 1:1 selection of matches based on descending similarity.
+    활용: mutual k-NN 매칭 후 1:1 매칭 강제
+    - 입력:
+      ia: np.ndarray — 이미지 A의 매칭된 인덱스 배열
+      ib: np.ndarray — 이미지 B의 매칭된 인덱스 배열
+      sim: np.ndarray — 매칭 유사도 배열    
+    - 출력:
+      Tuple[np.ndarray, np.ndarray, np.ndarray] — 선택된 매칭의 ia, ib, sim 배열 튜플
     """
     if ia.size == 0:
         return ia, ib, sim

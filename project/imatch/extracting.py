@@ -1,19 +1,22 @@
 # project/imatch/features.py
 import math
 import torch
+import numpy as np
 from typing import Optional, Tuple
 
 """
 이미지 특징 추출 관련 유틸리티 함수들.
-- 글로벌 특징 벡터 추출: extract_global_feature(model: torch.nn.Module, x: torch.Tensor, device: str) -> torch.Tensor
-- 패치 토큰 추출: extract_patch_tokens(model: torch.nn.Module, x: torch.Tensor, device: str) -> Optional[torch.Tensor]
+- 글로벌 특징 벡터 추출: global_embedding(model: torch.nn.Module, x: torch.Tensor, device: str) -> torch.Tensor
+- 패치 토큰 추출: patch_embedding(model: torch.nn.Module, x: torch.Tensor, device: str) -> Optional[torch.Tensor]
 - 코사인 유사도 계산: cosine_similarity(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor
-- 키포인트 임계값 적용: apply_keypoint_threshold(keypoints: torch.Tensor, scores: torch.Tensor, threshold: float) -> torch.Tensor
-- 패치 토큰 격자 재배열: reshape_patch_tokens_to_grid(tokens: torch.Tensor, grid_size: Tuple[int, int]) -> torch.Tensor 
+- 키포인트 임계값 적용: kp_threshold(tokens: torch.Tensor, idx_map: torch.Tensor, threshold: float) -> Tuple[torch.Tensor, torch.Tensor]
+- 패치 토큰 격자 재배열: patch2grid(tokens: torch.Tensor) -> torch.Tensor
 """
 
+from imatch.matching import matching_knn, enforced_matching, grid_side, subsample_tokens
+
 @torch.no_grad()
-def extract_global_feature(model: torch.nn.Module, x: torch.Tensor, device: str) -> torch.Tensor:
+def global_embedding(model: torch.nn.Module, x: torch.Tensor, device: str) -> torch.Tensor: #LEGACY: extract_global_feature
     """
     모델 출력에서 글로벌 특징을 추출한다.
     """
@@ -37,16 +40,24 @@ def extract_global_feature(model: torch.nn.Module, x: torch.Tensor, device: str)
         # 출력이 튜플 또는 리스트인 경우 첫 번째 요소를 특징으로 사용
         feat = out
 
-    # 특징 텐서의 차원에 따라 평균을 계산하여 글로벌 특징 벡터 생성
+    # 특징 텐서의 차원에 따라 글로벌 특징 벡터 생성 (평균풀링 수행)
+    # ndim이 3이라는 뜻은 텐서가 보통 (batch, sequence_len, hidden_dim) 구조를 따른다는 뜻
     if feat.ndim == 3:
+        # 시퀀스 차원에 대해 평균 계산 (평균풀링): 1번째 차원 -> 1=sequence_len
         feat = feat.mean(dim=1)
+    
+    # ndim이 4라는 뜻은 텐서가 (batch, channels, height, width) 구조를 따른다는 뜻
     if feat.ndim == 4:
+        # 공간 차원에 대해 평균 계산 (평균풀링): 2번째와 3번째 차원 -> 2=height, 3=width
         feat = feat.mean(dim=(2, 3))
+    
+    # 배치 차원 제거 후 반환: 글로벌 특징 벡터 -> 0=batch 차원
+    # feat shape: (1, hidden_dim) -> feat.squeeze(0) shape: (hidden_dim,)
     return feat.squeeze(0)
 
 
 @torch.no_grad()
-def extract_patch_tokens(model: torch.nn.Module, x: torch.Tensor, device: str) -> Optional[torch.Tensor]:
+def patch_embedding(model: torch.nn.Module, x: torch.Tensor, device: str) -> Optional[torch.Tensor]: #LEGACY: extract_patch_tokens
     """
     패치 토큰(CLS 제외)을 추출한다.
     """
@@ -120,7 +131,7 @@ def cosine_similarity(a: torch.Tensor, b: torch.Tensor) -> float:
     return float((a * b).sum().item())
 
 
-def apply_keypoint_threshold(
+def kp_threshold( #LEGACY: apply_keypoint_threshold
     # tokens: 필터링할 토큰 텐서
     # indx_map: 각 토큰에 대한 인덱스 매핑 텐서
     # threshold: 필터링 임계값
@@ -179,7 +190,7 @@ def apply_keypoint_threshold(
     return filtered_tokens, filtered_idx_map
 
 
-def reshape_patch_tokens_to_grid(
+def patch2grid( #LEGACY: reshape_patch_tokens_to_grid
     tokens: torch.Tensor,
     grid_hw: Optional[Tuple[int, int]] = None,
     keep_batch: bool = False,
@@ -228,3 +239,79 @@ def reshape_patch_tokens_to_grid(
         raise ValueError("Cannot squeeze batch dimension when batch size != 1.")
 
     return reshaped.squeeze(0)
+
+def compute_patch_matches(
+    tokens_a: Optional[torch.Tensor],
+    tokens_b: Optional[torch.Tensor],
+    args,
+):
+    """패치 임베딩을 이용해 매칭 결과를 계산한다."""
+    if tokens_a is None or tokens_b is None:
+        return None, None, None
+
+    orig_n_a = int(tokens_a.shape[0])
+    orig_n_b = int(tokens_b.shape[0])
+
+    ia_map = torch.arange(orig_n_a, device=tokens_a.device, dtype=torch.long)
+    ib_map = torch.arange(orig_n_b, device=tokens_b.device, dtype=torch.long)
+
+    if args.keypoint_th > 0.0:
+        tokens_a, ia_map = kp_threshold(tokens_a, ia_map, args.keypoint_th)
+        tokens_b, ib_map = kp_threshold(tokens_b, ib_map, args.keypoint_th)
+
+    if args.max_features:
+        tokens_a, subs_a = subsample_tokens(tokens_a, int(args.max_features))
+        subs_a = subs_a.to(ia_map.device, dtype=torch.long)
+        ia_map = ia_map.index_select(0, subs_a)
+
+        tokens_b, subs_b = subsample_tokens(tokens_b, int(args.max_features))
+        subs_b = subs_b.to(ib_map.device, dtype=torch.long)
+        ib_map = ib_map.index_select(0, subs_b)
+
+    pa_np = tokens_a.detach().cpu().float().numpy()
+    pb_np = tokens_b.detach().cpu().float().numpy()
+
+    topk_limit = int(args.max_features) if args.max_features else 400
+    ia, ib, sim = matching_knn(pa_np, pb_np, k=1, topk=topk_limit)
+
+    if sim.size > 0:
+        keep = sim >= args.match_th
+        if args.line_th > 0.0:
+            rel_min = sim.max() * args.line_th
+            keep = np.logical_and(keep, sim >= rel_min)
+        if not np.any(keep):
+            top_idx = int(np.argmax(sim))
+            keep = np.zeros_like(sim, dtype=bool)
+            keep[top_idx] = True
+        ia = ia[keep]
+        ib = ib[keep]
+        sim = sim[keep]
+
+    ia, ib, sim = enforced_matching(ia, ib, sim)
+
+    ia_map_cpu = ia_map.detach().cpu()
+    ib_map_cpu = ib_map.detach().cpu()
+
+    if ia.size > 0:
+        ia_full = ia_map_cpu[torch.from_numpy(ia)]
+        ib_full = ib_map_cpu[torch.from_numpy(ib)]
+    else:
+        ia_full = torch.empty(0, dtype=torch.long)
+        ib_full = torch.empty(0, dtype=torch.long)
+
+    g_a = grid_side(orig_n_a)
+    g_b = grid_side(orig_n_b)
+
+    patch = dict(
+        n_a=orig_n_a,
+        n_b=orig_n_b,
+        n_selected_a=int(ia_map.shape[0]),
+        n_selected_b=int(ib_map.shape[0]),
+        grid_g_a=(int(g_a) if g_a else None),
+        grid_g_b=(int(g_b) if g_b else None),
+        idx_a=ia_full.tolist(),
+        idx_b=ib_full.tolist(),
+        similarities=sim.tolist(),
+    )
+
+    return patch, pa_np, pb_np

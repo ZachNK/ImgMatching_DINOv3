@@ -36,9 +36,39 @@ def bounded_int(low: int, high: int) -> Callable[[str], int]:
 
 def progress_bar(run: Callable, *args, **kwargs):
     with Progress(SpinnerColumn(), TextColumn("[cyan]{task.description}"), TimeElapsedColumn()) as progress:
-        task = progress.add_task("Processing...", total=None)
+        task = progress.add_task("      Processing...", total=None)
 
         result = run(*args, **kwargs)
         progress.update(task, completed=1)
     return result
+
+def token_preview(tokens):
+    def _flatten(seq):
+        for item in seq:
+            if isinstance(item, (list, tuple)):
+                yield from _flatten(item)
+            else:
+                yield item
+
+    raw = tokens.tolist() if hasattr(tokens, "tolist") else tokens
+    values = list(_flatten(raw)) if isinstance(raw, (list, tuple)) else [raw]
+    length = len(values)
+
+    if length == 0:
+        return "[]"
+    if length >= 6:
+        head_count = tail_count = 3
+    elif length >= 4:
+        head_count = tail_count = 2
+    elif length >= 2:
+        head_count = tail_count = 1
+    else:
+        head_count, tail_count = 1, 0
+
+    if head_count + tail_count >= length:
+        display_values = values
+    else:
+        display_values = values[:head_count]
+        display_values += ["..."] + values[-tail_count:] if tail_count else ["..."]
+    return "[" + ", ".join(str(item) for item in display_values) + "]"
 
