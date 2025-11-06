@@ -17,26 +17,26 @@ from imatch.loading import (
     file_prefix
 )
 
-varAltitude = 400
-varIndex = 160
-varWeight = "cxLarge"
+varAltitude = 450
+varIndex = 1
+varWeight = "vit7b16"
 
-_EXPORT_SUBDIR = EMBED_ROOT / varWeight # /exports/dinov3_embeds/vit7b16sat
-_DENSE_SUBDIR = VIS_ROOT / varWeight # /exports/dinov3_vis/vit7b16sat
+_EXPORT_SUBDIR = EMBED_ROOT / varWeight # e.g. /exports/dinov3_embeds/vit7b16sat
+_DENSE_SUBDIR = VIS_ROOT / varWeight # e.g. /exports/dinov3_vis/vit7b16sat
 
 
 def _build_context(altitude: int, index: int, weight: str) -> dict[str, Path | str]:
     """Prepare the shared paths used throughout the dense feature pipeline."""
-    hub_entry, _, dataset_type = weights_path(weight) # "dinov3_vitl16", "/opt/weights/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth", "SAT"
-    prefix = file_prefix(altitude, index) # "200_0150"
-    export_root = _EXPORT_SUBDIR  # "/exports/dinov3_debug/Test_global_embedding+dense_feature/1106" --> /exports/dinov3_embeds/vit7b16sat
-    dense_root = _DENSE_SUBDIR  # "/exports/dinov3_debug/Test_global_embedding+dense_feature/1106/DenseFT" --> /exports/dinov3_vis/vit7b16sat
+    hub_entry, _, dataset_type = weights_path(weight) # e.g. dinov3_vitl16, /opt/weights/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth, SAT
+    prefix = file_prefix(altitude, index) # e.g. 200_0150
+    export_root = _EXPORT_SUBDIR  # e.g. /exports/dinov3_embeds/vit7b16sat
+    dense_root = _DENSE_SUBDIR  # e.g. /exports/dinov3_vis/vit7b16sat
 
     return {
-        "hub_entry": hub_entry, # "dinov3_vitl16"
-        "prefix": prefix, # "200_0150"
-        "grid_path": export_root / f"Global_grid_{hub_entry}_{dataset_type}_{prefix}.npy", # "/exports/dinov3_embeds/vit7b16sat/Global_grid_dinov3_vitl16_SAT_200_0150.npy"
-        "dense_path": dense_root / f"Dense_Global_{hub_entry}_{dataset_type}_{prefix}.png", # "/exports/dinov3_vis/vit7b16sat/Dense_Global_dinov3_vitl16_SAT_200_0150.png"
+        "hub_entry": hub_entry, # e.g. "dinov3_vitl16"
+        "prefix": prefix, # e.g. "200_0150"
+        "grid_path": export_root / f"Global_grid_{hub_entry}_{dataset_type}_{prefix}.npy", # e.g. /exports/dinov3_embeds/vit7b16sat/Global_grid_dinov3_vitl16_SAT_200_0150.npy
+        "dense_path": dense_root / f"Dense_Global_{hub_entry}_{dataset_type}_{prefix}.png", # e.g. /exports/dinov3_vis/vit7b16sat/Dense_Global_dinov3_vitl16_SAT_200_0150.png
     }
 
 

@@ -33,9 +33,9 @@ from imatch.utils import (
 )
 
 # Default parameters kept for manual single-run usage.
-varAltitude = 400
-varIndex = 160
-varWeight = "cxLarge"
+varAltitude = 450
+varIndex = 1
+varWeight = "vit7b16"
 varTargetRes = 1024
 
 REPO_DIR = Path("/workspace/dinov3")
@@ -138,15 +138,15 @@ def run_global_embedding(
         "\n",
         "================= Debug: Test Global Embedding =================\n",
         "INPUT: \n",
-        f"  REPO_DIR: {REPO_DIR}\n", # e.g. /workspace/dinov3
-        f"  IMAGE_PATH: {image_path}\n", # e.g. /opt/datasets/250912161658_200/250912161658_200_0150.jpg
-        f"  HUB_ENTRY: {hub_entry}\n", # e.g. dinov3_vits16
-        f"  key_path: {weight_path}\n", # e.g. /opt/weights/03_ViT_SAT-493M/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth
-        f"  device: {device}\n", # e.g. "cuda"
+        f"\tREPO_DIR: {REPO_DIR}\n", # e.g. /workspace/dinov3
+        f"\tIMAGE_PATH: {image_path}\n", # e.g. /opt/datasets/250912161658_200/250912161658_200_0150.jpg
+        f"\tHUB_ENTRY: {hub_entry}\n", # e.g. dinov3_vits16
+        f"\tkey_path: {weight_path}\n", # e.g. /opt/weights/03_ViT_SAT-493M/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth
+        f"\tdevice: {device}\n", # e.g. "cuda"
         "OUTPUT: \n",
-        f"  Test Global embedding DINOv3 numpy array -> {npy_path}\n", # e.g. /exports/dinov3_embeds/vit7b16sat/Global_dinov3_vit7b16_SAT_200_0150.npy
-        f"  Test Global embedding DINOv3 csv row     -> {csv_path}\n", # e.g. /exports/dinov3_embeds/vit7b16sat/Global_dinov3_vit7b16_SAT_200_0150.csv
-        f"  Test Global patch grid numpy array       -> {grid_path}\n", # e.g. /exports/dinov3_embeds/vit7b16sat/Global_grid_dinov3_vit7b16_SAT_200_0150.npy
+        f"\tTest Global embedding DINOv3 numpy array -> {npy_path}\n", # e.g. /exports/dinov3_embeds/vit7b16sat/Global_dinov3_vit7b16_SAT_200_0150.npy
+        f"\tTest Global embedding DINOv3 csv row     -> {csv_path}\n", # e.g. /exports/dinov3_embeds/vit7b16sat/Global_dinov3_vit7b16_SAT_200_0150.csv
+        f"\tTest Global patch grid numpy array       -> {grid_path}\n", # e.g. /exports/dinov3_embeds/vit7b16sat/Global_grid_dinov3_vit7b16_SAT_200_0150.npy
         "================= Debug: Test Global Embedding =================\n",
     )
 
@@ -156,15 +156,15 @@ def run_global_embedding(
 
     print("\nPreparing input image")
     img_tensor = progress_bar(load_image, image_path.as_posix())
-    print(f"  [Global Embedding 1] Input image shape: {img_tensor.shape}")
+    print(f"\t[Global Embedding 1] Input image shape: {img_tensor.shape}")
     print(f">>>>>>>>>>>>>>> Preparing input image completed\n")
 
     print("\nResizing and transforming input")
     patch_h, patch_w = _resolve_patch_size(model)
     patch_multiple = max(1, math.floor(target_res / patch_h))
     print(
-        f"  [Global Embedding 2] Model patch size: {(patch_h, patch_w)}\n"
-        f"  [Global Embedding 3] Image resized to: {patch_multiple * patch_h}x{patch_multiple * patch_w}\n"
+        f"\t[Global Embedding 2] Model patch size: {(patch_h, patch_w)}\n"
+        f"\t[Global Embedding 3] Image resized to: {patch_multiple * patch_h}x{patch_multiple * patch_w}\n"
     )
 
     transform = progress_bar(
@@ -174,12 +174,12 @@ def run_global_embedding(
         interpolation="bicubic",
         normalize=dataset_type,
     )
-    print(f"  [Global Embedding 4]\n transform: {transform}")
+    print(f"\t[Global Embedding 4]\n transform: {transform}")
     print(f">>>>>>>>>>>>>>> Resizing and transforming input completed\n")
 
     print("\nPreparing input tensor")
     input_tensor = progress_bar(transform, img_tensor).unsqueeze(0)
-    print(f"  [Global Embedding 5] Input tensor shape: {input_tensor.shape}")
+    print(f"\t[Global Embedding 5] Input tensor shape: {input_tensor.shape}")
     print(f">>>>>>>>>>>>>>> Preparing input tensor completed\n")
 
     print("\nExtracting global and patch tokens")
@@ -194,18 +194,18 @@ def run_global_embedding(
         try:
             patch_grid = patch2grid(patch_tokens)
         except ValueError as err:
-            print(f"  [WARN 1: Global Embedding]  patch grid reshape failed: {err}")
+            print(f"\t[WARN 1: Global Embedding]  patch grid reshape failed: {err}")
     else:
-        print("  [WARN 2: Global Embedding] patch tokens could not be extracted.")
+        print("\t[WARN 2: Global Embedding] patch tokens could not be extracted.")
 
-    print("  [Global Embedding 6] Global feature shape:", tuple(global_tokens.shape))
-    print("  [Global Embedding 7] Global feature:", token_preview(global_tokens))
+    print("\t[Global Embedding 6] Global feature shape:", tuple(global_tokens.shape))
+    print("\t[Global Embedding 7] Global feature:", token_preview(global_tokens))
 
     if patch_tokens is not None:
-        print("  [Global Embedding 8] Patch tokens shape:", tuple(patch_tokens.shape))
+        print("\t[Global Embedding 8] Patch tokens shape:", tuple(patch_tokens.shape))
         if patch_grid is not None:
-            print("  [Global Embedding 9] Patch grid shape:", tuple(patch_grid.shape))
-            print("  [Global Embedding 10] Patch grid preview:", token_preview(patch_grid))
+            print("\t[Global Embedding 9] Patch grid shape:", tuple(patch_grid.shape))
+            print("\t[Global Embedding 10] Patch grid preview:", token_preview(patch_grid))
     print(">>>>>>>>>>>>>>> Extracting global and patch tokens completed\n")
 
     print("\nFeature exporting")
@@ -213,11 +213,11 @@ def run_global_embedding(
     progress_bar(np.save, npy_path, global_arr)
     progress_bar(np.savetxt, csv_path, global_arr[None, :], delimiter=",")
     print(f"<<< Test Global Embedding OUTPUT >>>\n")
-    print(f"  [saved] Test Global embedding DINOv3 numpy array -> {npy_path}") # e.g. /exports/dinov3_embeds/vit7b16sat/Global_dinov3_vit7b16_SAT_200_0150.npy
-    print(f"  [saved] Test Global embedding DINOv3 csv row     -> {csv_path}") # e.g. /exports/dinov3_embeds/vit7b16sat/Global_dinov3_vit7b16_SAT_200_0150.csv
+    print(f"\t[saved] Test Global embedding DINOv3 numpy array -> {npy_path}") # e.g. /exports/dinov3_embeds/vit7b16sat/Global_dinov3_vit7b16_SAT_200_0150.npy
+    print(f"\t[saved] Test Global embedding DINOv3 csv row     -> {csv_path}") # e.g. /exports/dinov3_embeds/vit7b16sat/Global_dinov3_vit7b16_SAT_200_0150.csv
     if patch_grid is not None:
         np.save(grid_path, patch_grid.numpy())
-        print(f"  [saved] Test Global patch grid numpy array   -> {grid_path}") # e.g. /exports/dinov3_embeds/vit7b16sat/Global_grid_dinov3_vit7b16_SAT_200_0150.npy
+        print(f"\t[saved] Test Global patch grid numpy array   -> {grid_path}") # e.g. /exports/dinov3_embeds/vit7b16sat/Global_grid_dinov3_vit7b16_SAT_200_0150.npy
     print(">>>>>>>>>>>>>>> Feature exporting completed\n")
 
 
