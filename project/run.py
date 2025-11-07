@@ -13,10 +13,10 @@ run.py
 import argparse
 import torch
 
-from project.imatch.imageprocessing import build_transform
-from project.imatch.loading import EMBED_ROOT, MODEL_KEY, prepare_run_context
-from project.imatch.pretrained import execute_matching
-from project.imatch.utils import bounded_float, bounded_int
+from imatch.preprocess import build_transform
+from imatch.loading import EMBED_ROOT, MODEL_KEY, prepare_run_context
+from imatch.pretrained import execute_matching
+from imatch.utils import bounded_float, bounded_int
 
 
 WEIGHT_GROUPS = {

@@ -65,7 +65,7 @@ Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Architecture
   mkdir <Your>\<Project>\<Directory>\dinov3_main      # 본 프로젝트 경로
   mkdir <Your>\<Project>\<Directory>\dinov3_src       # DINOv3
   mkdir <Your>\<Project>\<Directory>\dinov3_weights   # DINOv3에서 제공한 백본 경로
-  mkdir <Your>\<Project>\<Directory>\dinov3_data      # 활용할 입력 데이터셋 경로
+  mkdir <Your>\<Project>\<Directory>\dinov_data      # 활용할 입력 데이터셋 경로
   mkdir <Your>\<Project>\<Directory>\dinov3_exports   # 본 프로젝트의 출력 저장 경로
   ```
 
@@ -93,8 +93,8 @@ Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Architecture
   | `PROJECT_HOST` | `project/` 폴더 실경로 | `D:\GoogleDrive\KNK_Lab\_Projects\dinov3_main\project` |
   | `CODE_HOST` | dinov3 원본 리포지터리 | `D:\GoogleDrive\KNK_Lab\_Projects\dinov3_src` |
   | `WEIGHTS_HOST` | `.pth` 가중치 루트 | `D:\GoogleDrive\KNK_Lab\_Projects\dinov3_weights` |
-  | `DATASET_HOST` | 이미지 데이터셋 루트 | `D:\GoogleDrive\KNK_Lab\_Projects\dinov3_data` |
-  | `EXPORT_HOST` | JSON/PNG 결과 저장 루트 | `D:\GoogleDrive\KNK_Lab\_Projects\dinov3_exports` |
+| `DATASET_HOST` | 이미지 데이터셋 루트 | `D:\dinov_data` |
+| `EXPORT_HOST` | JSON/PNG 결과 저장 루트 | `D:\dinov3_exports` |
 
 
 ### 0-5) Docker Compose 빌드 단계
@@ -185,7 +185,7 @@ dinov3_main/
   > _예시 위치:_ `<Your>\<Project>\<Directory>\dinov3_weights`
 
 - **매칭 대상 이미지 데이터셋**  
-  > _예시 위치:_ `<Your>\<Project>\<Directory>\dinov3_data`
+  > _예시 위치:_ `<Your>\<Project>\<Directory>\dinov_data`
 
 - **결과 저장 디렉터리**  
   > _예시 위치:_ `<Your>\<Project>\<Directory>\dinov3_exports`
@@ -246,22 +246,22 @@ dinov3_main/
 
 ### 1-4) 데이터셋 준비
 
-- 마찬가지로 데이터셋도 `dinov3_data` 디렉토리에 저장한다.
+- 마찬가지로 데이터셋도 `dinov_data` 디렉토리에 저장한다.
 
-- `dinov3_data` 경로에 활용할 데이터셋은 아래와 같이 일관된 경로로 수정해야 한다.\
+- `dinov_data` 경로에 활용할 데이터셋은 아래와 같이 일관된 경로로 수정해야 한다.\
   `<ID>`는 세부 데이터셋 명이고, `<ALT>`는 항공 사진의 고도, `<FRAME>`은 해당 고도에서 촬영한 이미지 순번.
 
   ```bash
-  <Your>\<Project>\<Directory>\dinov3_data
-    └─<Your>\<Project>\<Directory>\dinov3_data\<ID>_<ALT>
-        └─<Your>\<Project>\<Directory>\dinov3_data\<ID>_<ALT>\<ID>_<ALT>_<FRAME>.jpg
+  <Your>\<Project>\<Directory>\dinov_data
+    └─<Your>\<Project>\<Directory>\dinov_data\<ID>_<ALT>
+        └─<Your>\<Project>\<Directory>\dinov_data\<ID>_<ALT>\<ID>_<ALT>_<FRAME>.jpg
   ```
 
 - 본 프로젝트의 데이터셋 경로 예시
   ```bash
-  <Your>\<Project>\<Directory>\dinov3_data
-    └─<Your>\<Project>\<Directory>\dinov3_data\250912143954_450
-        └─<Your>\<Project>\<Directory>\dinov3_data\250912143954_450\250912143954_450_0001.jpg
+  <Your>\<Project>\<Directory>\dinov_data
+    └─<Your>\<Project>\<Directory>\dinov_data\250912143954_450
+        └─<Your>\<Project>\<Directory>\dinov_data\250912143954_450\250912143954_450_0001.jpg
   ```
 
 ### 1-5) 디렉토리 최종
@@ -296,7 +296,7 @@ dinov3_main/
   │  ├─ 02_ConvNeXT_LVD-1689M\
   │  │  └─ *.pth
   │  └─ … (필요한 가중치별 디렉터리)
-  ├─ dinov3_data\                # 매칭 대상 이미지/데이터셋
+  ├─ dinov_data\                # 매칭 대상 이미지/데이터셋
   │  └─ … (프로젝트별 입력 데이터)
   └─ dinov3_exports\             # 결과(JSON/PNG/npy) 저장
     ├─ dinov3_embeds\

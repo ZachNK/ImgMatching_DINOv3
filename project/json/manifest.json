@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "defaults": {
+    "embedding_cfg": "res1024_ImageNetSAT",
+    "variant": "raw",
+    "variant_params": {},
+    "target_res": 1024,
+    "run": {
+      "test_embedding": true,
+      "generate_denseft": false,
+      "run_img2denseft": false
+    }
+  },
+  "models": [
+    {
+      "weight_key": ["vitl16", "vits16", "cxBase", "cxLarge", "cxSmall", "cxTiny","vitl16sat"],
+      "token_jobs": [
+        {
+          "token_type": "GlobalToken",
+          "variant": "raw",
+          "variant_params": {},
+          "run": {
+            "test_embedding": true,
+            "generate_denseft": false,
+            "run_img2denseft": false
+          }
+        },
+        {
+          "token_type": "PatchToken",
+          "variant": "raw",
+          "variant_params": {},
+          "run": {
+            "test_embedding": true,
+            "generate_denseft": false,
+            "run_img2denseft": false
+          }
+        }
+      ],
+      "image_groups": [
+        {
+          "names": [
+            "250912150549_400",
+            "250912154506_300",
+            "250912161658_200",
+            "250912163254_150",
+            "250915084516_100"
+          ],
+          "altitudes": [400, 300, 200, 150, 100],
+          "indices": [
+            1
+          ],
+          "query_dirs": [
+            "/exports/Q250912150549_400",
+            "/exports/Q250912154506_300",
+            "/exports/Q250912161658_200",
+            null,
+            null
+          ]
+        }
+      ]
+    }
+  ]
+}
+

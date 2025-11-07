@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from pathlib import Path
 from typing import List, Dict
 from imatch.pretrained import pretrained_model
-from imatch.imageprocessing import build_transform
+from imatch.preprocess import build_transform
 from imatch.extracting import (
     global_embedding,
     patch_embedding,

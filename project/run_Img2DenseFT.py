@@ -16,8 +16,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from Generate_dense_feature import generate_dense_feature
-from Test_global_embedding import run_test_global_embedding
+from project.Generate_DenseFT import generate_dense_feature
+from project.Test_Embedding import run_test_global_embedding
 
 
 ALTITUDES: Sequence[int] = (100, 150, 200, 250, 300, 350, 400, 450)

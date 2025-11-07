@@ -40,3 +40,6 @@ project/.mypy_cache/
 project/.pytest_cache/
 docs/hf_token.txt
 
+# Sensitive documents
+docs/etc/*.pdf
+
