@@ -36,6 +36,23 @@ varTargetRes = 1024
 REPO_DIR = Path("/workspace/dinov3")
 
 
+TOKEN_OUTPUT_KEYS = ("global", "patch", "grid")
+
+
+def _normalize_output_plan(
+    plan: Optional[Dict[str, Dict[str, bool]]]
+) -> Dict[str, Dict[str, bool]]:
+    if plan is None:
+        return {key: {"npy": True, "json": True} for key in TOKEN_OUTPUT_KEYS}
+    normalized = {key: {"npy": False, "json": False} for key in TOKEN_OUTPUT_KEYS}
+    for key in TOKEN_OUTPUT_KEYS:
+        entry = plan.get(key) if isinstance(plan, dict) else None
+        if isinstance(entry, dict):
+            normalized[key]["npy"] = bool(entry.get("npy"))
+            normalized[key]["json"] = bool(entry.get("json"))
+    return normalized
+
+
 def _build_context(
     altitude: int,
     index: int,
@@ -51,7 +68,8 @@ def _build_context(
     prefix = file_prefix(altitude, index) # e.g. "200_0150"
 
     # Derive embedding configuration when not explicitly provided.
-    resolved_embedding_cfg = embedding_cfg or f"res{target_res}_ImageNet{dt_type}"
+    default_embedding_cfg = f"res{target_res}_ImageNet"
+    resolved_embedding_cfg = embedding_cfg or default_embedding_cfg
 
     # Token naming follows: token_type → embedding_cfg → variant → weight_id → dataset_type → altitude → index
     altitude_str = f"{int(altitude)}"
@@ -59,6 +77,12 @@ def _build_context(
     global_base = f"GlobalToken_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dt_type}_{altitude_str}_{index_str}"
     patch_base = f"PatchToken_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dt_type}_{altitude_str}_{index_str}"
     patch_grid_base = f"PatchGrid_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dt_type}_{altitude_str}_{index_str}"
+
+    export_root = EMBED_ROOT / weight
+    altitude_dir = export_root / altitude_str
+    global_dir = altitude_dir / "GlobalToken"
+    patch_dir = altitude_dir / "PatchToken"
+    grid_dir = altitude_dir / "PatchGrid"
 
     return {
         "hub_entry": hub_entry, # e.g. "dinov3_vit7b16"
@@ -68,7 +92,11 @@ def _build_context(
         "file_name": global_base,
         "patch_name": patch_base,
         "grid_name": patch_grid_base,
-        "export_dir": EMBED_ROOT / weight, # e.g. /exports/dinov3_embeds/vitb16
+        "export_root": export_root,
+        "altitude_dir": altitude_dir,
+        "global_dir": global_dir,
+        "patch_dir": patch_dir,
+        "grid_dir": grid_dir,
         "embedding_cfg": resolved_embedding_cfg,
         "variant": variant,
         "variant_params": dict(variant_params or {}),
@@ -127,7 +155,7 @@ def _resolve_patch_size(model: torch.nn.Module) -> tuple[int, int]:
 
     if patch is None:
         raise AttributeError(
-            "AttributeError: Unable to infer patch size: model lacks patch_embed/patch_size/stem/downsample_layers metadata."
+            "\033[91mAttributeError: Unable to infer patch size: model lacks patch_embed/patch_size/stem/downsample_layers metadata.\033[0m"
         )
 
     if isinstance(patch, torch.Size):
@@ -141,12 +169,12 @@ def _resolve_patch_size(model: torch.nn.Module) -> tuple[int, int]:
         try:
             patch = tuple(int(p) for p in patch)  # type: ignore[arg-type]
         except TypeError as err:  # pragma: no cover - defensive
-            raise TypeError(f"TypeError: Unsupported patch size type = {type(patch)}") from err
+            raise TypeError(f"\033[91mTypeError: Unsupported patch size type = {type(patch)}\033[0m") from err
 
     if len(patch) == 1:
         patch = (patch[0], patch[0])
     elif len(patch) < 2:
-        raise ValueError(f"ValueError: Resolved patch size has insufficient dimensions = {patch}")
+        raise ValueError(f"\033[91mValueError: Resolved patch size has insufficient dimensions = {patch}\033[0m")
 
     return patch[0], patch[1]
 
@@ -159,6 +187,7 @@ def run_global_embedding(
     variant: str = "raw",
     embedding_cfg: Optional[str] = None,
     variant_params: Optional[Dict[str, object]] = None,
+    output_plan: Optional[Dict[str, Dict[str, bool]]] = None,
 ) -> None:
     """Execute the full embedding pipeline for the given parameters."""
     ctx = _build_context(altitude, index, weight, target_res, variant, embedding_cfg, variant_params)
@@ -169,7 +198,9 @@ def run_global_embedding(
     file_name = ctx["file_name"]
     patch_name = ctx["patch_name"]
     grid_name = ctx["grid_name"]
-    export_dir = ctx["export_dir"]
+    global_dir = ctx["global_dir"]
+    patch_dir = ctx["patch_dir"]
+    grid_dir = ctx["grid_dir"]
     resolved_embedding_cfg = ctx["embedding_cfg"]
     resolved_variant = ctx["variant"]
     resolved_variant_params = dict(ctx["variant_params"])
@@ -177,12 +208,23 @@ def run_global_embedding(
     index_str = ctx["index_str"]
     prefix = ctx["prefix"]
 
-    export_dir.mkdir(parents=True, exist_ok=True)
-    npy_path = export_dir / f"{file_name}.npy"
-    patch_path = export_dir / f"{patch_name}.npy"
-    grid_path = export_dir / f"{grid_name}.npy"
-    global_meta_path = export_dir / f"{file_name}_meta.json"
-    patch_meta_path = export_dir / f"{patch_name}_meta.json"
+    plan = _normalize_output_plan(output_plan)
+    global_plan = plan["global"]
+    patch_plan = plan["patch"]
+    grid_plan = plan["grid"]
+
+    emit_global = bool(global_plan["npy"] or global_plan["json"])
+    emit_patch = bool(patch_plan["npy"] or patch_plan["json"])
+    emit_grid = bool(grid_plan["npy"] or grid_plan["json"])
+    need_global = emit_global
+    need_patch = emit_patch or emit_grid
+
+    npy_path = global_dir / f"{file_name}.npy"
+    patch_path = patch_dir / f"{patch_name}.npy"
+    grid_path = grid_dir / f"{grid_name}.npy"
+    global_meta_path = global_dir / f"{file_name}_meta.json"
+    patch_meta_path = patch_dir / f"{patch_name}_meta.json"
+    grid_meta_path = grid_dir / f"{grid_name}_meta.json"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda":
@@ -192,18 +234,23 @@ def run_global_embedding(
         "\n",
         "================= Debug: Test Global Embedding =================\n",
         "INPUT: \n",
-        f"\tREPO_DIR: {REPO_DIR}\n", # e.g. /workspace/dinov3
-        f"\tIMAGE_PATH: {image_path}\n", # e.g. /opt/datasets/250912161658_200/250912161658_200_0150.jpg
-        f"\tHUB_ENTRY: {hub_entry}\n", # e.g. dinov3_vits16
-        f"\tkey_path: {weight_path}\n", # e.g. /opt/weights/03_ViT_SAT-493M/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth
-        f"\tdevice: {device}\n", # e.g. "cuda"
+        f"\tREPO_DIR: \033[33m{REPO_DIR}\033[0m\n", # e.g. /workspace/dinov3
+        f"\tIMAGE_PATH: \033[33m{image_path}\033[0m\n", # e.g. /opt/datasets/250912161658_200/250912161658_200_0150.jpg
+        f"\tHUB_ENTRY: \033[33m{hub_entry}\033[0m\n", # e.g. dinov3_vits16
+        f"\tkey_path: \033[33m{weight_path}\033[0m\n", # e.g. /opt/weights/03_ViT_SAT-493M/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth
+        f"\tdevice: \033[33m{device}\033[0m\n", # e.g. "cuda"
         "OUTPUT: \n",
-        f"\t[config] embedding_cfg: {resolved_embedding_cfg}\n",
-        f"\t[config] variant: {resolved_variant}\n",
-        f"\t[config] altitude/index: {altitude_str}/{index_str} (prefix={prefix})\n",
-        f"\tTest Global embedding DINOv3 numpy array -> {npy_path}\n",
-        f"\tTest Patch token numpy array             -> {patch_path}\n",
-        f"\tTest Patch grid numpy array              -> {grid_path}\n",
+        f"\t[config] embedding_cfg: \033[33m{resolved_embedding_cfg}\033[0m\n",
+        f"\t[config] variant: \033[33m{resolved_variant}\033[0m\n",
+        f"\t[config] altitude/index: \033[33m{altitude_str}/{index_str}\033[0m (prefix=\033[33m{prefix}\033[0m)\n",
+        (
+            f"\t[outputs] global(npy/json)=\033[33m{int(global_plan['npy'])}/{int(global_plan['json'])}\033[0m "
+            f"patch=\033[33m{int(patch_plan['npy'])}/{int(patch_plan['json'])}\033[0m "
+            f"grid=\033[33m{int(grid_plan['npy'])}/{int(grid_plan['json'])}\033[0m\n"
+        ),
+        f"\tTest Global embedding DINOv3 numpy array -> \033[34m{npy_path}\033[0m\n",
+        f"\tTest Patch token numpy array             -> \033[34m{patch_path}\033[0m\n",
+        f"\tTest Patch grid numpy array              -> \033[34m{grid_path}\033[0m\n",
         "================= Debug: Test Global Embedding =================\n",
     )
 
@@ -249,23 +296,28 @@ def run_global_embedding(
         "pipeline_total": None,
     }
     pipeline_start = time.perf_counter()
+    global_tokens: Optional[torch.Tensor] = None
+    patch_tokens: Optional[torch.Tensor] = None
     with torch.inference_mode():
-        g_start = time.perf_counter()
-        global_tokens = progress_bar(global_embedding, model, input_tensor, device)
-        if device.type == "cuda":
-            torch.cuda.synchronize()
-        timings["global_forward"] = (time.perf_counter() - g_start) * 1000.0
+        if need_global:
+            g_start = time.perf_counter()
+            global_tokens = progress_bar(global_embedding, model, input_tensor, device)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+            timings["global_forward"] = (time.perf_counter() - g_start) * 1000.0
 
-        p_start = time.perf_counter()
-        patch_tokens = progress_bar(patch_embedding, model, input_tensor, device)
-        if device.type == "cuda":
-            torch.cuda.synchronize()
-        timings["patch_forward"] = (time.perf_counter() - p_start) * 1000.0
+        if need_patch:
+            p_start = time.perf_counter()
+            patch_tokens = progress_bar(patch_embedding, model, input_tensor, device)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+            timings["patch_forward"] = (time.perf_counter() - p_start) * 1000.0
     
-    global_tokens = global_tokens.detach().cpu()
     patch_grid = None
     patch_numpy = None
     patch_post_info = None
+    if global_tokens is not None:
+        global_tokens = global_tokens.detach().cpu()
     if patch_tokens is not None:
         patch_tokens = patch_tokens.detach().cpu()
         post_start = time.perf_counter()
@@ -276,24 +328,29 @@ def run_global_embedding(
         )
         timings["postprocess"] = (time.perf_counter() - post_start) * 1000.0
         patch_tokens = processed_tokens
-        patch_numpy = patch_tokens.numpy()
+        if emit_patch:
+            patch_numpy = patch_tokens.numpy()
         grid_from_info = None
         if patch_post_info is not None and "grid" in patch_post_info:
             grid_from_info = patch_post_info.pop("grid")
         if patch_post_info is not None and "grid_shape" in patch_post_info:
             patch_post_info.pop("grid_shape")
-        if grid_from_info is not None:
-            patch_grid = grid_from_info.detach().cpu() if isinstance(grid_from_info, torch.Tensor) else torch.as_tensor(grid_from_info)
-        else:
-            try:
-                patch_grid = patch2grid(patch_tokens)
-            except ValueError as err:
-                print(f"\t[WARN 1: Global Embedding]  patch grid reshape failed: {err}")
-    else:
-        print("\t[WARN 2: Global Embedding] patch tokens could not be extracted.")
+        if emit_grid:
+            if grid_from_info is not None:
+                patch_grid = grid_from_info.detach().cpu() if isinstance(grid_from_info, torch.Tensor) else torch.as_tensor(grid_from_info)
+            else:
+                try:
+                    patch_grid = patch2grid(patch_tokens)
+                except ValueError as err:
+                    print(f"\t\033[91m[WARN 1: Global Embedding]  patch grid reshape failed: {err}\033[0m")
+    elif need_patch:
+        print("\t\033[91m[WARN 2: Global Embedding] patch tokens could not be extracted.\033[0m")
 
-    print("\t[Global Embedding 6] Global feature shape:", tuple(global_tokens.shape))
-    print("\t[Global Embedding 7] Global feature:", token_preview(global_tokens))
+    if global_tokens is not None:
+        print("\t[Global Embedding 6] Global feature shape:", tuple(global_tokens.shape))
+        print("\t[Global Embedding 7] Global feature:", token_preview(global_tokens))
+    elif need_global:
+        print("\t\033[91m[WARN: Global Embedding] Global tokens were requested but not produced.\033[0m")
 
     if patch_tokens is not None:
         print("\t[Global Embedding 8] Patch tokens shape:", tuple(patch_tokens.shape))
@@ -304,23 +361,50 @@ def run_global_embedding(
         if patch_grid is not None:
             print("\t[Global Embedding 9] Patch grid shape:", tuple(patch_grid.shape))
             print("\t[Global Embedding 10] Patch grid preview:", token_preview(patch_grid))
+    elif need_patch:
+        print("\t\033[91m[WARN: Global Embedding] Patch tokens were requested but not produced.\033[0m")
     print(">>>>>>>>>>>>>>> Extracting global and patch tokens completed\n")
 
     print("\nFeature exporting")
-    global_arr = global_tokens.numpy()
-    progress_bar(np.save, npy_path, global_arr)
     print(f"<<< Test Global Embedding OUTPUT >>>\n")
-    print(f"\t[saved] Test Global embedding DINOv3 numpy array -> {npy_path}") # e.g. /exports/dinov3_embeds/vit7b16sat/Global_dinov3_vit7b16_SAT_200_0150.npy
-    if patch_numpy is not None:
-        progress_bar(np.save, patch_path, patch_numpy)
-        print(f"\t[saved] Test Patch token numpy array       -> {patch_path}")
-    if patch_grid is not None:
+
+    global_array = None
+    if global_plan["npy"]:
+        if global_tokens is not None:
+            global_array = global_tokens.numpy()
+            global_dir.mkdir(parents=True, exist_ok=True)
+            progress_bar(np.save, npy_path, global_array)
+            print(f"\t\033[32m[saved] Test Global embedding DINOv3 numpy array -> {npy_path}\033[0m")
+        else:
+            print("\t\033[91m[warn] Global npy requested but tokens unavailable.\033[0m")
+    else:
+        print("\t\033[91m[skip] Global npy disabled by configuration.\033[0m")
+    if patch_plan["npy"]:
+        if patch_numpy is not None:
+            patch_dir.mkdir(parents=True, exist_ok=True)
+            progress_bar(np.save, patch_path, patch_numpy)
+            print(f"\t\033[32m[saved] Test Patch token numpy array       -> {patch_path}\033[0m")
+        else:
+            print("\t\033[91m[warn] Patch npy requested but tokens unavailable.\033[0m")
+    else:
+        print("\t\033[91m[skip] Patch npy disabled by configuration.\033[0m")
+    grid_array = None
+    if emit_grid and patch_grid is not None:
         if isinstance(patch_grid, torch.Tensor):
             grid_array = patch_grid.detach().cpu().numpy()
         else:
             grid_array = np.asarray(patch_grid)
-        np.save(grid_path, grid_array)
-        print(f"\t[saved] Test Patch grid numpy array         -> {grid_path}") # e.g. /exports/dinov3_embeds/vit7b16sat/PatchGrid_res1024_ImageNetSAT_raw_...
+
+    if grid_plan["npy"]:
+        if grid_array is not None:
+            grid_dir.mkdir(parents=True, exist_ok=True)
+            np.save(grid_path, grid_array)
+            print(f"\t\033[32m[saved] Test Patch grid numpy array         -> {grid_path}\033[0m")
+        else:
+            print("\t\033[91m[warn] Patch grid npy requested but grid unavailable.\033[0m")
+    else:
+        print("\t\033[91m[skip] Patch grid npy disabled by configuration.\033[0m")
+
     print(">>>>>>>>>>>>>>> Feature exporting completed\n")
 
     timings["pipeline_total"] = (time.perf_counter() - pipeline_start) * 1000.0
@@ -336,7 +420,7 @@ def run_global_embedding(
         return total if has_file else None
 
     global_files = {
-        "vector": _file_entry(npy_path),
+        "vector": _file_entry(npy_path) if global_plan["npy"] and global_array is not None else None,
         "patch_tokens": None,
         "patch_grid": None,
         "dense_vis": None,
@@ -344,8 +428,15 @@ def run_global_embedding(
     }
     patch_files = {
         "vector": None,
-        "patch_tokens": _file_entry(patch_path) if patch_numpy is not None else None,
-        "patch_grid": _file_entry(grid_path) if patch_grid is not None else None,
+        "patch_tokens": _file_entry(patch_path) if patch_plan["npy"] and patch_numpy is not None else None,
+        "patch_grid": None,
+        "dense_vis": None,
+        "index": None,
+    }
+    grid_files = {
+        "vector": _file_entry(grid_path) if grid_plan["npy"] and grid_array is not None else None,
+        "patch_tokens": None,
+        "patch_grid": None,
         "dense_vis": None,
         "index": None,
     }
@@ -375,33 +466,38 @@ def run_global_embedding(
         "aggregation": aggregation_config if isinstance(aggregation_config, str) else "single",
     }
 
-    global_meta = {
-        "run_id": file_name,
-        "token_type": "GlobalToken",
-        "config": dict(common_config),
-        "files": global_files,
-        "metrics": {
-            "token_count": 1,
-            "embedding_dim": int(global_arr.shape[0]),
-            "matching_count": None,
-            "mutual_knn_tokens": None,
-            "keep_ratio": None,
-            "recall@1": None,
-            "recall@5": None,
-            "recall@10": None,
-            "mAP": None,
-            "top1_precision": None,
-        },
-        "timing_ms": dict(timings),
-        "resources": {
-            "gpu_peak_mem_mb": gpu_peak_mem_mb,
-            "embedding_storage_bytes": _sum_sizes(global_files),
-            "index_size_bytes": None,
-        },
-    }
-    _write_meta(global_meta_path, global_meta)
+    if global_plan["json"] and global_tokens is not None:
+        global_dir.mkdir(parents=True, exist_ok=True)
+        global_meta = {
+            "run_id": file_name,
+            "token_type": "GlobalToken",
+            "config": dict(common_config),
+            "files": global_files,
+            "metrics": {
+                "token_count": 1,
+                "embedding_dim": int(global_tokens.shape[0]) if global_tokens is not None else None,
+                "matching_count": None,
+                "mutual_knn_tokens": None,
+                "keep_ratio": None,
+                "recall@1": None,
+                "recall@5": None,
+                "recall@10": None,
+                "mAP": None,
+                "top1_precision": None,
+            },
+            "timing_ms": dict(timings),
+            "resources": {
+                "gpu_peak_mem_mb": gpu_peak_mem_mb,
+                "embedding_storage_bytes": _sum_sizes(global_files),
+                "index_size_bytes": None,
+            },
+        }
+        _write_meta(global_meta_path, global_meta)
+    elif global_plan["json"]:
+        print("\t\033[91m[warn] Global meta requested but tokens unavailable.\033[0m")
 
-    if patch_numpy is not None:
+    if patch_plan["json"] and patch_tokens is not None:
+        patch_dir.mkdir(parents=True, exist_ok=True)
         patch_metrics = {
             "token_count": int(patch_tokens.shape[0]),
             "embedding_dim": int(patch_tokens.shape[1]) if patch_tokens.ndim == 2 else None,
@@ -429,6 +525,44 @@ def run_global_embedding(
             },
         }
         _write_meta(patch_meta_path, patch_meta)
+    elif patch_plan["json"]:
+        print("\t\033[91m[warn] Patch meta requested but tokens unavailable.\033[0m")
+
+    if grid_plan["json"] and grid_array is not None:
+        grid_dir.mkdir(parents=True, exist_ok=True)
+        grid_h = int(grid_array.shape[0]) if grid_array.ndim >= 1 else None
+        grid_w = int(grid_array.shape[1]) if grid_array.ndim >= 2 else None
+        grid_dim = int(grid_array.shape[2]) if grid_array.ndim >= 3 else None
+        grid_metrics = {
+            "token_count": int(grid_h * grid_w) if grid_h is not None and grid_w is not None else None,
+            "grid_shape": [grid_h, grid_w] if grid_h is not None and grid_w is not None else None,
+            "embedding_dim": grid_dim,
+            "matching_count": None,
+            "mutual_knn_tokens": None,
+            "keep_ratio": patch_post_info.get("keep_ratio") if patch_post_info else None,
+            "recall@1": None,
+            "recall@5": None,
+            "recall@10": None,
+            "mAP": None,
+            "top1_precision": None,
+        }
+
+        grid_meta = {
+            "run_id": grid_name,
+            "token_type": "PatchGrid",
+            "config": dict(common_config),
+            "files": grid_files,
+            "metrics": grid_metrics,
+            "timing_ms": dict(timings),
+            "resources": {
+                "gpu_peak_mem_mb": gpu_peak_mem_mb,
+                "embedding_storage_bytes": _sum_sizes(grid_files),
+                "index_size_bytes": None,
+            },
+        }
+        _write_meta(grid_meta_path, grid_meta)
+    elif grid_plan["json"]:
+        print("\t\033[91m[warn] Patch grid meta requested but grid unavailable.\033[0m")
 
 
 def main() -> None:

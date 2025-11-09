@@ -12,8 +12,7 @@ from pathlib import Path
 from PIL import Image
 from imatch.loading import (
     EMBED_ROOT,
-    VIS_ROOT,
-    weights_path, 
+    weights_path,
     file_prefix
 )
 
@@ -22,33 +21,56 @@ varIndex = 1
 varWeight = "vit7b16"
 
 
-def _build_context(altitude: int, index: int, weight: str) -> dict[str, Path | str]:
+def _build_context(
+    altitude: int,
+    index: int,
+    weight: str,
+    variant: str,
+    embedding_cfg: str,
+) -> dict[str, Path | str]:
     """Prepare the shared paths used throughout the dense feature pipeline."""
-    hub_entry, _, dataset_type = weights_path(weight) # e.g. dinov3_vitl16, /opt/weights/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth, SAT
+    hub_entry, _, dataset_type = weights_path(weight) # e.g. dinov3_vitl16
+    altitude_str = f"{int(altitude)}"
+    index_str = f"{int(index):04d}"
     prefix = file_prefix(altitude, index) # e.g. 200_0150
-    export_root = EMBED_ROOT / weight
-    dense_root = VIS_ROOT / weight
+
+    grid_name = f"PatchGrid_{embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{altitude_str}_{index_str}"
+    dense_name = f"DenseFT_{embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{altitude_str}_{index_str}"
+
+    altitude_dir = EMBED_ROOT / weight / altitude_str
+    grid_dir = altitude_dir / "PatchGrid"
+    dense_dir = altitude_dir / "DenseFT"
 
     return {
-        "hub_entry": hub_entry, # e.g. "dinov3_vitl16"
-        "prefix": prefix, # e.g. "200_0150"
-        "grid_path": export_root / f"PatchGrid_{hub_entry}_{dataset_type}_{prefix}.npy", # e.g. /exports/dinov3_embeds/vit7b16sat/PatchGrid_dinov3_vitl16_SAT_200_0150.npy
-        "dense_path": dense_root / f"DenseFT_{hub_entry}_{dataset_type}_{prefix}.png", # e.g. /exports/dinov3_vis/vit7b16sat/DenseFT_dinov3_vitl16_SAT_200_0150.png
+        "hub_entry": hub_entry,
+        "prefix": prefix,
+        "grid_path": grid_dir / f"{grid_name}.npy",
+        "dense_path": dense_dir / f"{dense_name}.png",
+        "dense_dir": dense_dir,
     }
 
 
-def generate_dense_feature(altitude: int, index: int, weight: str) -> None:
+def generate_dense_feature(
+    altitude: int,
+    index: int,
+    weight: str,
+    target_res: int = 1024,
+    variant: str = "raw",
+    embedding_cfg: str | None = None,
+) -> None:
     """Load the patch grid exported by Test_global_embedding and save a PNG."""
-    ctx = _build_context(altitude, index, weight)
+    resolved_embedding_cfg = embedding_cfg or f"res{int(target_res)}_ImageNet"
+    ctx = _build_context(altitude, index, weight, variant, resolved_embedding_cfg)
     grid_path = ctx["grid_path"]
     dense_path = ctx["dense_path"]
+    dense_dir = ctx["dense_dir"]
 
     if not grid_path.exists():
         raise FileNotFoundError(
-            f"Patch grid not found for altitude={altitude}, index={index}, weight={weight}: {grid_path}"
+            f"\033[91mPatch grid not found for altitude={altitude}, index={index}, weight={weight}: {grid_path}\033[0m"
         )
 
-    dense_path.parent.mkdir(parents=True, exist_ok=True)
+    Path(dense_dir).mkdir(parents=True, exist_ok=True)
 
     grid = torch.from_numpy(np.load(grid_path))  # (H, W, C)
     flat = grid.reshape(-1, grid.shape[-1])  # (H*W, C)
@@ -68,7 +90,7 @@ def generate_dense_feature(altitude: int, index: int, weight: str) -> None:
 
     img = Image.fromarray((rgb_up * 255).astype("uint8"))
     img.save(dense_path)
-    print(f"[saved] Dense feature image -> {dense_path}")
+    print(f"\033[32m[saved] Dense feature image -> {dense_path}\033[0m")
 
 
 def main() -> None:
@@ -77,6 +99,7 @@ def main() -> None:
         index=varIndex,
         weight=varWeight,
     )
+    print(f"\033[31m[DONE] Generated dense feature image.\033[0m")
 
 
 if __name__ == "__main__":

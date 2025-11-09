@@ -1,64 +1,57 @@
 {
-  "version": 1,
-  "defaults": {
-    "embedding_cfg": "res1024_ImageNetSAT",
-    "variant": "raw",
-    "variant_params": {},
-    "target_res": 1024,
-    "run": {
-      "test_embedding": true,
-      "generate_denseft": false,
-      "run_img2denseft": false
-    }
-  },
+  "version": 2,
+  "dataset_key": "shinsung_data",
+  "weight_set": "dinov3_weights",
   "models": [
     {
-      "weight_key": ["vitl16", "vits16", "cxBase", "cxLarge", "cxSmall", "cxTiny","vitl16sat"],
+      "weight_key": ["vitl16"],
+      "image_groups": [
+        {
+          "altitudes": [250],
+          "indices": [
+            1
+          ]
+        }
+      ],
       "token_jobs": [
         {
           "token_type": "GlobalToken",
           "variant": "raw",
           "variant_params": {},
+          "target_res": 1024,
+          "outputs": {
+            "global": { "npy": true, "json": true }
+          },
           "run": {
-            "test_embedding": true,
-            "generate_denseft": false,
-            "run_img2denseft": false
+            "test_embedding": false
           }
         },
         {
           "token_type": "PatchToken",
           "variant": "raw",
           "variant_params": {},
+          "target_res": 1024,
+          "outputs": {
+            "patch": { "npy": true, "json": true }
+          },
           "run": {
-            "test_embedding": true,
-            "generate_denseft": false,
-            "run_img2denseft": false
+            "test_embedding": false
           }
-        }
-      ],
-      "image_groups": [
+        },
         {
-          "names": [
-            "250912150549_400",
-            "250912154506_300",
-            "250912161658_200",
-            "250912163254_150",
-            "250915084516_100"
-          ],
-          "altitudes": [400, 300, 200, 150, 100],
-          "indices": [
-            1
-          ],
-          "query_dirs": [
-            "/exports/Q250912150549_400",
-            "/exports/Q250912154506_300",
-            "/exports/Q250912161658_200",
-            null,
-            null
-          ]
+          "token_type": "PatchGrid",
+          "variant": "raw",
+          "variant_params": {},
+          "target_res": 1024,
+          "outputs": {
+            "grid": { "npy": true, "json": true }
+          },
+          "run": {
+            "test_embedding": false,
+            "generate_denseft": true
+          }
         }
       ]
     }
   ]
 }
-

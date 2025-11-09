@@ -32,7 +32,7 @@ def iter_grid_files(base_dir: Path) -> Iterable[Path]:
         dirs = [p for p in base_dir.iterdir() if p.is_dir()]
     for target_dir in dirs:
         if not target_dir.exists():
-            print(f"[WARN] Query embed subdir missing, skipping: {target_dir}")
+            print(f"\033[91m[WARN] Query embed subdir missing, skipping: {target_dir}\033[0m")
             continue
         for path in sorted(target_dir.glob(GRID_PATTERN)):
             yield path
@@ -69,7 +69,7 @@ def main() -> None:
         save_dense_feature(grid_path, output_path)
         total += 1
 
-    print(f"[DONE] Generated {total} dense feature images for queries.")
+    print(f"\033[31m[DONE] Generated {total} dense feature images for queries.\033[0m")
 
 
 if __name__ == "__main__":

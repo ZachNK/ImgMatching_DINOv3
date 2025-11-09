@@ -64,7 +64,7 @@ def _parse_query_filename(path: Path) -> QueryInfo:
     stem = path.stem  # e.g. 250912150549_400_0001_rot045_crop50
     parts = stem.split("_")
     if len(parts) < 4:
-        raise ValueError(f"Unexpected query filename format: {path.name}")
+        raise ValueError(f"\033[91mUnexpected query filename format: {path.name}\033[0m")
 
     scene = parts[0]
     altitude = int(parts[1])
@@ -123,7 +123,7 @@ def _resolve_patch_size(model: torch.nn.Module) -> Tuple[int, int]:
                 patch = conv.kernel_size
 
     if patch is None:
-        raise AttributeError("Unable to infer patch size from model.")
+        raise AttributeError("\033[91mUnable to infer patch size from model.\033[0m")
 
     if isinstance(patch, torch.Size):
         patch = tuple(int(p) for p in patch)
@@ -137,7 +137,7 @@ def _resolve_patch_size(model: torch.nn.Module) -> Tuple[int, int]:
     if len(patch) == 1:
         patch = (patch[0], patch[0])
     elif len(patch) < 2:
-        raise ValueError(f"Resolved patch size invalid: {patch}")
+        raise ValueError(f"\033[91mResolved patch size invalid: {patch}\033[0m")
 
     return patch[0], patch[1]
 
@@ -238,9 +238,9 @@ def process_query_image(
             try:
                 patch_grid = patch2grid(patch_tokens)
             except ValueError as err:
-                print(f"[WARN] Query patch grid reshape failed: {err}")
+                print(f"\033[91m[WARN] Query patch grid reshape failed: {err}\033[0m")
     else:
-        print("[WARN] Patch tokens could not be extracted.")
+        print("\033[91m[WARN] Patch tokens could not be extracted.\033[0m")
 
     global_arr = global_tokens.numpy()
     progress_bar(np.save, npy_path, global_arr)
@@ -365,7 +365,7 @@ def process_query_image(
 def iter_query_files() -> Iterable[Path]:
     for qdir in QUERY_DIRS:
         if not qdir.exists():
-            print(f"[WARN] Query directory missing, skipping: {qdir}")
+            print(f"\033[91m[WARN] Query directory missing, skipping: {qdir}\033[0m")
             continue
         for suffix in SUPPORTED_SUFFIXES:
             for path in sorted(qdir.glob(f"*{suffix}")):
@@ -399,7 +399,7 @@ def main() -> None:
             )
             total += 1
 
-    print(f"[DONE] Processed {total} query images.")
+    print(f"\033[32m[DONE] Processed {total} query images.\033[0m")
 
 
 if __name__ == "__main__":

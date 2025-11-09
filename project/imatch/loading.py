@@ -36,12 +36,55 @@ MATCH_ROOT = Path(os.getenv("MATCH_ROOT", "/exports/dinov3_match"))
 VIS_ROOT = Path(os.getenv("VIS_ROOT", "/exports/dinov3_vis"))
 # Network guard: torch.hub remote downloads are disabled unless explicitly opted out
 
-JSON = Path("/workspace/project/json/data_key.json")
-with open(JSON, 'r') as s: file = json.load(s)
-IMAGE_KEY = file[list(file.keys())[0]]
-MODEL_KEY = file[list(file.keys())[1]]
 DATASET_ROOT = Path("/opt/datasets")
 EXPORT_ROOT = Path("/exports")
+WEIGHT_ROOT = Path("/opt/weights")
+JSON = Path("/workspace/project/json/data_key.json")
+
+with JSON.open("r", encoding="utf-8") as s:
+    registry = json.load(s)
+
+DATASETS: Dict[str, Dict] = registry.get("datasets", {})
+WEIGHT_SETS: Dict[str, Dict] = registry.get("weights", {})
+
+def _first_key(data: Dict[str, Dict]) -> str:
+    return next(iter(data)) if data else ""
+
+DATASET_KEY = os.getenv("DATASET_KEY", _first_key(DATASETS))
+if not DATASET_KEY or DATASET_KEY not in DATASETS:
+    raise KeyError(f"[loading] Unknown dataset key: {DATASET_KEY or 'undefined'}")
+
+DATASET_CONFIG = DATASETS[DATASET_KEY]
+CAPTURE_MAP = DATASET_CONFIG.get("captures")
+if not isinstance(CAPTURE_MAP, dict) or not CAPTURE_MAP:
+    raise ValueError(f"[loading] Dataset '{DATASET_KEY}' is missing 'captures' mapping.")
+
+IMAGE_KEY: Dict[str, int] = {str(k): int(v) for k, v in CAPTURE_MAP.items()}
+ALTITUDE_TO_CAPTURES: Dict[int, List[str]] = defaultdict(list)
+for capture_id, altitude in IMAGE_KEY.items():
+    ALTITUDE_TO_CAPTURES[int(altitude)].append(capture_id)
+
+QUERY_CONFIG = DATASET_CONFIG.get("query", {})
+QUERY_PREFIX = QUERY_CONFIG.get("prefix", "Q")
+QUERY_ROOT = Path(QUERY_CONFIG.get("root", EXPORT_ROOT.as_posix()))
+
+WEIGHTS_KEY = os.getenv("WEIGHTS_KEY", _first_key(WEIGHT_SETS))
+if not WEIGHTS_KEY or WEIGHTS_KEY not in WEIGHT_SETS:
+    raise KeyError(f"[loading] Unknown weights key: {WEIGHTS_KEY or 'undefined'}")
+MODEL_KEY = WEIGHT_SETS[WEIGHTS_KEY]
+
+def _resolve_capture_id(altitude: int) -> str:
+    """
+    Resolve a capture id from the dataset registry using an altitude value.
+    """
+    matches = ALTITUDE_TO_CAPTURES.get(int(altitude), [])
+    if not matches:
+        raise SystemExit(f"[loading(img_path):warn0] No capture mapped to altitude={altitude} for dataset '{DATASET_KEY}'.")
+    if len(matches) > 1:
+        options = ", ".join(sorted(matches))
+        raise SystemExit(f"[loading(img_path):warn0] Ambiguous altitude={altitude}; candidates={options}. Specify DATASET_KEY to disambiguate.")
+    return matches[0]
+
 
 def img_path(alt: int, img: int) -> List[str]:
     """
@@ -53,10 +96,10 @@ def img_path(alt: int, img: int) -> List[str]:
     - 출력:
       List[str] — [폴더 이름, 파일 이름] 형식의 이미지 경로 리스트
     """
-    fld = "_".join([[k for k in IMAGE_KEY][9-int(alt/50)], str(alt)])
-    dts = "_".join([fld, '%04d'%img])
-    result = [fld, dts]
-    return result
+    capture_id = _resolve_capture_id(alt)
+    folder = f"{capture_id}_{int(alt)}"
+    file_name = f"{folder}_{int(img):04d}"
+    return [folder, file_name]
 
 def weights_path(key: str) -> List[str]:
     """
@@ -67,15 +110,16 @@ def weights_path(key: str) -> List[str]:
     - 출력:
       List[str] — [허브 엔트리 이름, 백본모델 파일 경로] 형식의 리스트
     """
-    for p in MODEL_KEY:
-        for models in list(MODEL_KEY[p].keys()):
-            if key == models:
-                folderName = p
-                hubEntry = MODEL_KEY[p][models][0]
-                fileName = MODEL_KEY[p][models][1]
-                dataName = MODEL_KEY[p][models][2]
-    result = [hubEntry, "/".join(["/opt", "weights", folderName, fileName]), dataName]
-    return result
+    key = key.strip()
+    if not key:
+        raise ValueError("[loading(weights_path)] Empty weight key provided.")
+
+    for folder_name, models in MODEL_KEY.items():
+        if key in models:
+            hub_entry, file_name, data_name = models[key]
+            ckpt = WEIGHT_ROOT / folder_name / file_name
+            return [hub_entry, ckpt.as_posix(), data_name]
+    raise KeyError(f"[loading(weights_path)] Weight key '{key}' not found in registry '{WEIGHTS_KEY}'.")
 
 def file_prefix(imgAlt: str, imgIndex: str) -> str:
     """
