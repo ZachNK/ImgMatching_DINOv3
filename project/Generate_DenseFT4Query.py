@@ -14,31 +14,48 @@ from PIL import Image
 
 
 VAR_WEIGHT_KEY = "vitb16"
-QUERY_EMBED_ROOT = Path("/exports/dinov3_embed")
-QUERY_VIS_ROOT = Path("/exports/dinov3_vis")
-SUBDIRS: Sequence[Path] = (
-    Path("Q250912150549_400"),
-    Path("Q250912154506_300"),
-    Path("Q250912161658_200"),
-)
+QUERY_EMBED_ROOT = Path("/exports/dinov3_query_embeds")
+ALTITUDE_FILTER: Sequence[int] = ()
 
 GRID_PATTERN = "QueryPatchGrid_*.npy"
 
 
-def iter_grid_files(base_dir: Path) -> Iterable[Path]:
-    if SUBDIRS:
-        dirs = [base_dir / pattern for pattern in SUBDIRS]
+def iter_grid_files(
+    weight_key: str,
+    root: Path = QUERY_EMBED_ROOT,
+    altitudes: Sequence[int] | None = None,
+) -> Iterable[Path]:
+    weight_root = root / weight_key
+    if not weight_root.exists():
+        print(f"\033[91m[WARN] Query embed root missing for weight={weight_key}: {weight_root}\033[0m")
+        return
+
+    if altitudes:
+        altitude_dirs = [weight_root / f"{int(alt)}" for alt in altitudes]
     else:
-        dirs = [p for p in base_dir.iterdir() if p.is_dir()]
-    for target_dir in dirs:
-        if not target_dir.exists():
-            print(f"\033[91m[WARN] Query embed subdir missing, skipping: {target_dir}\033[0m")
+        altitude_dirs = [p for p in weight_root.iterdir() if p.is_dir()]
+
+    for altitude_dir in altitude_dirs:
+        if not altitude_dir.exists():
+            print(f"\033[93m[WARN] Altitude directory missing, skipping: {altitude_dir}\033[0m")
             continue
-        for path in sorted(target_dir.glob(GRID_PATTERN)):
-            yield path
+        rotation_dirs = [p for p in altitude_dir.iterdir() if p.is_dir()]
+        for rotation_dir in rotation_dirs:
+            patch_dir = rotation_dir / "PatchGrid"
+            if not patch_dir.exists():
+                print(f"\033[93m[WARN] PatchGrid directory missing, skipping: {patch_dir}\033[0m")
+                continue
+            for path in sorted(patch_dir.glob(GRID_PATTERN)):
+                yield path
 
 
-def save_dense_feature(grid_path: Path, output_path: Path) -> None:
+def derive_dense_output_path(grid_path: Path) -> Path:
+    dense_dir = grid_path.parent.parent / "DenseFT"
+    dense_name = grid_path.stem.replace("PatchGrid", "DenseFT")
+    return dense_dir / f"{dense_name}.png"
+
+
+def save_dense_feature(grid_path: Path, output_path: Path) -> Path:
     grid = torch.from_numpy(np.load(grid_path))  # (H, W, C)
     flat = grid.reshape(-1, grid.shape[-1])
     feat = flat - flat.mean(dim=0, keepdim=True)
@@ -55,18 +72,23 @@ def save_dense_feature(grid_path: Path, output_path: Path) -> None:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray((rgb_up * 255).astype("uint8")).save(output_path)
-    print(f"[saved] DenseFT -> {output_path}")
+    print(f"[saved] DenseFT -> \033[32m{output_path}\033[0m")
+    return output_path
+
+
+def generate_query_dense_feature(
+    grid_path: Path,
+    output_path: Path | None = None,
+) -> Path:
+    target_path = output_path or derive_dense_output_path(grid_path)
+    return save_dense_feature(grid_path, target_path)
 
 
 def main() -> None:
-    embed_base = QUERY_EMBED_ROOT / f"Q{VAR_WEIGHT_KEY}"
-    vis_base = QUERY_VIS_ROOT / f"Q{VAR_WEIGHT_KEY}"
-
+    altitudes = ALTITUDE_FILTER if ALTITUDE_FILTER else None
     total = 0
-    for grid_path in iter_grid_files(embed_base):
-        rel = grid_path.relative_to(embed_base)
-        output_path = vis_base / rel.with_name(rel.stem.replace("QueryPatchGrid", "QueryDenseFT") + ".png")
-        save_dense_feature(grid_path, output_path)
+    for grid_path in iter_grid_files(VAR_WEIGHT_KEY, QUERY_EMBED_ROOT, altitudes):
+        generate_query_dense_feature(grid_path)
         total += 1
 
     print(f"\033[31m[DONE] Generated {total} dense feature images for queries.\033[0m")

@@ -47,6 +47,7 @@ QUERY_EMBED_ROOT = Path("/exports/dinov3_query_embeds")
 REPO_DIR = Path("/workspace/dinov3")
 
 SUPPORTED_SUFFIXES = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
+TOKEN_OUTPUT_KEYS = ("global", "patch", "grid")
 
 
 @dataclass(frozen=True)
@@ -54,10 +55,61 @@ class QueryInfo:
     scene: str
     altitude: int
     index: int
+    rotation: int
     tag: str
     identifier: str
     source: Path
     query_dir: Path
+
+
+@dataclass(frozen=True)
+class QueryEmbeddingResult:
+    info: QueryInfo
+    weight_key: str
+    target_res: int
+    variant: str
+    embedding_cfg: str
+    global_path: Optional[Path]
+    patch_path: Optional[Path]
+    grid_path: Optional[Path]
+    rotation: int
+
+
+def _normalize_output_plan(
+    plan: Optional[Dict[str, Dict[str, bool]]],
+) -> Dict[str, Dict[str, bool]]:
+    if plan is None:
+        return {key: {"npy": True, "json": True} for key in TOKEN_OUTPUT_KEYS}
+    normalized = {key: {"npy": False, "json": False} for key in TOKEN_OUTPUT_KEYS}
+    for key in TOKEN_OUTPUT_KEYS:
+        entry = plan.get(key) if isinstance(plan, dict) else None
+        if isinstance(entry, dict):
+            normalized[key]["npy"] = bool(entry.get("npy"))
+            normalized[key]["json"] = bool(entry.get("json"))
+    if not any(normalized[key]["npy"] or normalized[key]["json"] for key in TOKEN_OUTPUT_KEYS):
+        return {key: {"npy": True, "json": True} for key in TOKEN_OUTPUT_KEYS}
+    return normalized
+
+
+def _should_emit(entry: Dict[str, bool]) -> bool:
+    return bool(entry.get("npy") or entry.get("json"))
+
+
+def _build_output_dirs(
+    weight_key: str,
+    altitude: int,
+    rotation: int,
+    root: Path = QUERY_EMBED_ROOT,
+) -> Dict[str, Path]:
+    rotation_dir = f"{int(rotation):03d}"
+    altitude_dir = root / weight_key / f"{int(altitude)}" / rotation_dir
+    return {
+        "altitude": altitude_dir,
+        "global": altitude_dir / "GlobalToken",
+        "patch": altitude_dir / "PatchToken",
+        "grid": altitude_dir / "PatchGrid",
+        "denseft": altitude_dir / "DenseFT",
+    }
 
 
 def _parse_query_filename(path: Path) -> QueryInfo:
@@ -70,11 +122,20 @@ def _parse_query_filename(path: Path) -> QueryInfo:
     altitude = int(parts[1])
     index = int(parts[2])
     tag = "_".join(parts[3:])
+    rotation = 0
+    for piece in parts[3:]:
+        if piece.startswith("rot") and len(piece) >= 4:
+            try:
+                rotation = int(piece[3:])
+            except ValueError:
+                rotation = 0
+            break
     identifier = f"{scene}_{altitude}_{index:04d}_{tag}"
     return QueryInfo(
         scene=scene,
         altitude=altitude,
         index=index,
+        rotation=rotation,
         tag=tag,
         identifier=identifier,
         source=path,
@@ -153,26 +214,43 @@ def process_query_image(
     embedding_cfg: Optional[str],
     variant: str,
     variant_params: Dict[str, object],
-) -> None:
+    output_plan: Optional[Dict[str, Dict[str, bool]]] = None,
+    query_embed_root: Path = QUERY_EMBED_ROOT,
+) -> QueryEmbeddingResult:
     resolved_embedding_cfg = embedding_cfg or f"res{target_res}_ImageNet{dataset_type}"
-    output_dir = QUERY_EMBED_ROOT / f"Q{weight_key}" / info.query_dir.name
-    output_dir.mkdir(parents=True, exist_ok=True)
+    plan = _normalize_output_plan(output_plan)
+    global_plan = plan["global"]
+    patch_plan = plan["patch"]
+    grid_plan = plan["grid"]
+
+    emit_global = _should_emit(global_plan)
+    emit_patch = _should_emit(patch_plan)
+    emit_grid = _should_emit(grid_plan)
+    need_patch = emit_patch or emit_grid
+    if not (emit_global or need_patch):
+        raise ValueError("\033[91m[Error] Query job must enable at least one token output.\033[0m")
+
+    dirs = _build_output_dirs(weight_key, info.altitude, info.rotation, query_embed_root)
+    altitude_dir = dirs["altitude"]
+    global_dir = dirs["global"]
+    patch_dir = dirs["patch"]
+    grid_dir = dirs["grid"]
 
     global_base = f"QueryGlobal_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{info.identifier}"
     patch_base = f"QueryPatchToken_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{info.identifier}"
     grid_base = f"QueryPatchGrid_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{info.identifier}"
 
-    npy_path = output_dir / f"{global_base}.npy"
-    csv_path = output_dir / f"{global_base}.csv"
-    patch_path = output_dir / f"{patch_base}.npy"
-    grid_path = output_dir / f"{grid_base}.npy"
-    global_meta_path = output_dir / f"{global_base}_meta.json"
-    patch_meta_path = output_dir / f"{patch_base}_meta.json"
+    npy_path = global_dir / f"{global_base}.npy"
+    patch_path = patch_dir / f"{patch_base}.npy"
+    grid_path = grid_dir / f"{grid_base}.npy"
+    global_meta_path = global_dir / f"{global_base}_meta.json"
+    patch_meta_path = patch_dir / f"{patch_base}_meta.json"
+    grid_meta_path = grid_dir / f"{grid_base}_meta.json"
 
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
 
-    print(f"\n[Query] Processing {info.source} -> {output_dir}")
+    print(f"\n[Query] Processing {info.source} -> \033[36m{altitude_dir}\033[0m")
 
     img_tensor = progress_bar(load_image, info.source.as_posix())
 
@@ -198,24 +276,31 @@ def process_query_image(
     }
 
     pipeline_start = time.perf_counter()
+    global_tokens: Optional[torch.Tensor] = None
+    patch_tokens: Optional[torch.Tensor] = None
+
     with torch.inference_mode():
-        g_start = time.perf_counter()
-        global_tokens = progress_bar(global_embedding, model, input_tensor, device)
-        if device.type == "cuda":
-            torch.cuda.synchronize()
-        timings["global_forward"] = (time.perf_counter() - g_start) * 1000.0
+        if emit_global:
+            g_start = time.perf_counter()
+            global_tokens = progress_bar(global_embedding, model, input_tensor, device)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+            timings["global_forward"] = (time.perf_counter() - g_start) * 1000.0
 
-        p_start = time.perf_counter()
-        patch_tokens = progress_bar(patch_embedding, model, input_tensor, device)
-        if device.type == "cuda":
-            torch.cuda.synchronize()
-        timings["patch_forward"] = (time.perf_counter() - p_start) * 1000.0
+        if need_patch:
+            p_start = time.perf_counter()
+            patch_tokens = progress_bar(patch_embedding, model, input_tensor, device)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+            timings["patch_forward"] = (time.perf_counter() - p_start) * 1000.0
 
-    global_tokens = global_tokens.detach().cpu()
     patch_grid = None
+    grid_array = None
     patch_numpy = None
     patch_post_info = None
 
+    if global_tokens is not None:
+        global_tokens = global_tokens.detach().cpu()
     if patch_tokens is not None:
         patch_tokens = patch_tokens.detach().cpu()
         post_start = time.perf_counter()
@@ -226,33 +311,60 @@ def process_query_image(
         )
         timings["postprocess"] = (time.perf_counter() - post_start) * 1000.0
         patch_tokens = processed_tokens
-        patch_numpy = patch_tokens.numpy()
+        if patch_plan["npy"]:
+            patch_numpy = patch_tokens.numpy()
         grid_from_info = None
         if patch_post_info is not None and "grid" in patch_post_info:
             grid_from_info = patch_post_info.pop("grid")
         if patch_post_info is not None and "grid_shape" in patch_post_info:
             patch_post_info.pop("grid_shape")
-        if grid_from_info is not None:
-            patch_grid = grid_from_info.detach().cpu() if isinstance(grid_from_info, torch.Tensor) else torch.as_tensor(grid_from_info)
-        else:
-            try:
-                patch_grid = patch2grid(patch_tokens)
-            except ValueError as err:
-                print(f"\033[91m[WARN] Query patch grid reshape failed: {err}\033[0m")
-    else:
+        if emit_grid:
+            if grid_from_info is not None:
+                patch_grid = (
+                    grid_from_info.detach().cpu()
+                    if isinstance(grid_from_info, torch.Tensor)
+                    else torch.as_tensor(grid_from_info)
+                )
+            else:
+                try:
+                    patch_grid = patch2grid(patch_tokens)
+                except ValueError as err:
+                    print(f"\033[91m[WARN] Query patch grid reshape failed: {err}\033[0m")
+            if patch_grid is not None:
+                grid_array = (
+                    patch_grid.detach().cpu().numpy()
+                    if isinstance(patch_grid, torch.Tensor)
+                    else np.asarray(patch_grid)
+                )
+    elif need_patch:
         print("\033[91m[WARN] Patch tokens could not be extracted.\033[0m")
 
-    global_arr = global_tokens.numpy()
-    progress_bar(np.save, npy_path, global_arr)
-    progress_bar(np.savetxt, csv_path, global_arr[None, :], delimiter=",")
-    if patch_numpy is not None:
+    global_arr = global_tokens.numpy() if global_tokens is not None else None
+    global_saved = False
+    if global_plan["npy"] and global_arr is not None:
+        global_dir.mkdir(parents=True, exist_ok=True)
+        progress_bar(np.save, npy_path, global_arr)
+        print(f"\t\033[32m[saved] Query image Global embedding DINOv3 numpy array -> {npy_path}\033[0m")
+        global_saved = True
+    elif global_plan["npy"]:
+        print("\033[91m[WARN] Global npy requested but tokens unavailable.\033[0m")
+
+    if patch_plan["npy"] and patch_numpy is not None:
+        patch_dir.mkdir(parents=True, exist_ok=True)
         progress_bar(np.save, patch_path, patch_numpy)
-    if patch_grid is not None:
-        if isinstance(patch_grid, torch.Tensor):
-            grid_array = patch_grid.detach().cpu().numpy()
+        print(f"\t\033[32m[saved] Query image Patch embedding DINOv3 numpy array -> {patch_path}\033[0m")
+    elif patch_plan["npy"] and patch_numpy is None:
+        print("\033[91m[WARN] Patch npy requested but tokens unavailable.\033[0m")
+
+    grid_saved = False
+    if grid_plan["npy"]:
+        if grid_array is not None:
+            grid_dir.mkdir(parents=True, exist_ok=True)
+            np.save(grid_path, grid_array)
+            print(f"\t\033[32m[saved] Query image Patch Grid DINOv3 numpy array -> {grid_path}\033[0m")
+            grid_saved = True
         else:
-            grid_array = np.asarray(patch_grid)
-        np.save(grid_path, grid_array)
+            print("\033[91m[WARN] Patch grid npy requested but grid unavailable.\033[0m")
 
     timings["pipeline_total"] = (time.perf_counter() - pipeline_start) * 1000.0
     gpu_peak = _gather_gpu_stats(device)
@@ -267,18 +379,23 @@ def process_query_image(
         return total if has else None
 
     global_files = {
-        "vector": _file_entry(npy_path),
-        "csv": _file_entry(csv_path),
+        "vector": _file_entry(npy_path) if global_saved else None,
         "patch_tokens": None,
         "patch_grid": None,
         "dense_vis": None,
         "index": None,
     }
     patch_files = {
-        "vector": None,
-        "csv": None,
-        "patch_tokens": _file_entry(patch_path) if patch_numpy is not None else None,
-        "patch_grid": _file_entry(grid_path) if patch_grid is not None else None,
+        "vector": _file_entry(patch_path) if patch_plan["npy"] and patch_numpy is not None else None,
+        "patch_tokens": None,
+        "patch_grid": None,
+        "dense_vis": None,
+        "index": None,
+    }
+    grid_files = {
+        "vector": _file_entry(grid_path) if grid_saved else None,
+        "patch_tokens": None,
+        "patch_grid": None,
         "dense_vis": None,
         "index": None,
     }
@@ -308,33 +425,38 @@ def process_query_image(
         },
     }
 
-    global_meta = {
-        "run_id": global_base,
-        "token_type": "GlobalToken",
-        "config": query_config,
-        "files": global_files,
-        "metrics": {
-            "token_count": 1,
-            "embedding_dim": int(global_arr.shape[0]),
-            "matching_count": None,
-            "mutual_knn_tokens": None,
-            "keep_ratio": None,
-            "recall@1": None,
-            "recall@5": None,
-            "recall@10": None,
-            "mAP": None,
-            "top1_precision": None,
-        },
-        "timing_ms": dict(timings),
-        "resources": {
-            "gpu_peak_mem_mb": gpu_peak,
-            "embedding_storage_bytes": _sum_sizes(global_files),
-            "index_size_bytes": None,
-        },
-    }
-    _write_meta(global_meta_path, global_meta)
+    if global_plan["json"] and global_arr is not None:
+        global_dir.mkdir(parents=True, exist_ok=True)
+        global_meta = {
+            "run_id": global_base,
+            "token_type": "GlobalToken",
+            "config": query_config,
+            "files": global_files,
+            "metrics": {
+                "token_count": 1,
+                "embedding_dim": int(global_arr.shape[0]),
+                "matching_count": None,
+                "mutual_knn_tokens": None,
+                "keep_ratio": None,
+                "recall@1": None,
+                "recall@5": None,
+                "recall@10": None,
+                "mAP": None,
+                "top1_precision": None,
+            },
+            "timing_ms": dict(timings),
+            "resources": {
+                "gpu_peak_mem_mb": gpu_peak,
+                "embedding_storage_bytes": _sum_sizes(global_files),
+                "index_size_bytes": None,
+            },
+        }
+        _write_meta(global_meta_path, global_meta)
+    elif global_plan["json"]:
+        print("\033[91m[WARN] Global meta requested but tokens unavailable.\033[0m")
 
-    if patch_numpy is not None:
+    if patch_plan["json"] and patch_tokens is not None:
+        patch_dir.mkdir(parents=True, exist_ok=True)
         patch_meta = {
             "run_id": patch_base,
             "token_type": "PatchToken",
@@ -360,22 +482,92 @@ def process_query_image(
             },
         }
         _write_meta(patch_meta_path, patch_meta)
+    elif patch_plan["json"]:
+        print("\033[91m[WARN] Patch meta requested but tokens unavailable.\033[0m")
+
+    if grid_plan["json"] and grid_array is not None:
+        grid_dir.mkdir(parents=True, exist_ok=True)
+        grid_h = int(grid_array.shape[0]) if grid_array.ndim >= 1 else None
+        grid_w = int(grid_array.shape[1]) if grid_array.ndim >= 2 else None
+        grid_dim = int(grid_array.shape[2]) if grid_array.ndim >= 3 else None
+        grid_meta = {
+            "run_id": grid_base,
+            "token_type": "PatchGrid",
+            "config": query_config,
+            "files": grid_files,
+            "metrics": {
+                "token_count": int(grid_h * grid_w) if grid_h is not None and grid_w is not None else None,
+                "grid_shape": [grid_h, grid_w] if grid_h is not None and grid_w is not None else None,
+                "embedding_dim": grid_dim,
+                "matching_count": None,
+                "mutual_knn_tokens": None,
+                "keep_ratio": patch_post_info.get("keep_ratio") if patch_post_info else None,
+                "recall@1": None,
+                "recall@5": None,
+                "recall@10": None,
+                "mAP": None,
+                "top1_precision": None,
+            },
+            "timing_ms": dict(timings),
+            "resources": {
+                "gpu_peak_mem_mb": gpu_peak,
+                "embedding_storage_bytes": _sum_sizes(grid_files),
+                "index_size_bytes": None,
+            },
+        }
+        _write_meta(grid_meta_path, grid_meta)
+    elif grid_plan["json"]:
+        print("\033[91m[WARN] Patch grid meta requested but grid unavailable.\033[0m")
+
+    return QueryEmbeddingResult(
+        info=info,
+        weight_key=weight_key,
+        target_res=target_res,
+        variant=variant,
+        embedding_cfg=resolved_embedding_cfg,
+        global_path=npy_path if global_saved else None,
+        patch_path=patch_path if patch_plan["npy"] and patch_numpy is not None else None,
+        grid_path=grid_path if grid_saved else None,
+        rotation=info.rotation,
+    )
 
 
-def iter_query_files() -> Iterable[Path]:
-    for qdir in QUERY_DIRS:
+def iter_query_files(
+    directories: Sequence[Path] | None = None,
+    patterns: Sequence[str] | None = None,
+    recursive: bool = False,
+) -> Iterable[Path]:
+    target_dirs = list(directories) if directories else list(QUERY_DIRS)
+    if not target_dirs:
+        return
+
+    resolved_patterns: List[str] = []
+    raw_patterns = list(patterns) if patterns else [f"*{suffix}" for suffix in SUPPORTED_SUFFIXES]
+    for pattern in raw_patterns:
+        pat = pattern.strip()
+        if not pat:
+            continue
+        if pat.startswith("."):
+            pat = f"*{pat}"
+        if not any(ch in pat for ch in "*?[]"):
+            pat = f"*{pat}"
+        resolved_patterns.append(pat)
+
+    for qdir in target_dirs:
+        qdir = Path(qdir)
         if not qdir.exists():
             print(f"\033[91m[WARN] Query directory missing, skipping: {qdir}\033[0m")
             continue
-        for suffix in SUPPORTED_SUFFIXES:
-            for path in sorted(qdir.glob(f"*{suffix}")):
-                yield path
+        for pattern in resolved_patterns:
+            iterator = qdir.rglob(pattern) if recursive else qdir.glob(pattern)
+            for path in sorted(iterator):
+                if path.is_file():
+                    yield path
 
 
 def main() -> None:
-    for weight_key in VAR_WEIGHT_KEYS:
-        hub_entry, weight_path, dataset_type = weights_path(weight_key)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    default_plan = _normalize_output_plan(None)
     total = 0
     for weight_key in VAR_WEIGHT_KEYS:
         hub_entry, weight_path, dataset_type = weights_path(weight_key)
@@ -396,6 +588,7 @@ def main() -> None:
                 embedding_cfg=None,
                 variant=VARIANT,
                 variant_params=VARIANT_PARAMS,
+                output_plan=default_plan,
             )
             total += 1
 

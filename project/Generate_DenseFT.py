@@ -99,7 +99,7 @@ def main() -> None:
         index=varIndex,
         weight=varWeight,
     )
-    print(f"\033[31m[DONE] Generated dense feature image.\033[0m")
+    print(f"\033[32m[DONE] Generated dense feature image.\033[0m")
 
 
 if __name__ == "__main__":
