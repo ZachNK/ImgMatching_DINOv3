@@ -3,12 +3,6 @@
 Docker Desktop 위에서 DINOv3 기반 이미지 매칭과 시각화를 수행하기 위한 프로젝트.  
 컨테이너 안에서는 1:1 매칭을 수행하도록 구성되어 있으며, 결과(JSON/PNG)는 호스트의 지정된 디렉터리에 저장.
 
-<p align="center">
-  <img src="docs/figs/sequence_runner.svg" width = "75%"/>
-</p>
-<p align="center"><em>전체 코드의 호출, 의존관계 시퀀스 다이어그램</em></p>
-
-
 ---
 
 ## 0) 요구 사항
