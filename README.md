@@ -565,3 +565,67 @@ Query 메타(`QueryGlobal_*_meta.json`, `QueryPatchToken_*_meta.json`)도 동일
 
 > **참고**: 매칭/시각화 파트는 흐름이 안정화된 이후 다시 문서화될 예정이며, 현재 README는 임베딩 단계만 다룬다.
 
+
+## Query Pipeline Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Op as Operator
+    participant GenQ as Generate_Query.py
+    participant Src as /opt/datasets/*
+    participant QDirs as /exports/Q*
+    participant Runner as run_manifestQuery.py
+    participant Manifest as manifestQuery.json
+    participant DataKey as data_key.json
+    participant Load as imatch.loading
+    participant Pretrain as imatch.pretrained
+    participant Embed as Test_Embedding4Query.process_query_image
+    participant Preproc as imatch.preprocess
+    participant Extract as imatch.extracting
+    participant Post as imatch.postprocess
+    participant Store as /exports/dinov3_query_embeds
+    participant Dense as Generate_DenseFT4Query.py
+
+    Op->>GenQ: Configure ANGLES & TASKS<br/>(project/Generate_Query.py)
+    GenQ->>Src: Read QueryTask.source captures
+    Src-->>GenQ: Altitude/index frames
+    GenQ->>QDirs: Save rotated+cropped queries (prefix Q*)
+    QDirs-->>Op: /exports/Q* ready
+
+    Op->>Runner: python project/run_manifestQuery.py --manifest ...
+    Runner->>Manifest: Load models, token_jobs, alt/index/rotation plan
+    Runner->>DataKey: Resolve dataset captures + query root/prefix
+    Note over Manifest,DataKey: dataset_key=shinsung_data, weight_set=dinov3_weights,<br/>Q root=/exports, prefix=Q, DenseFT flag
+    Runner->>Load: weights_path(weight_key)
+    Load-->>Runner: hub_entry, weight_path, dataset_type
+    Runner->>Pretrain: pretrained_model(REPO_DIR, hub_entry, weight_path, device)
+    Pretrain-->>Runner: Loaded DINOv3 backbone
+    Runner->>Runner: Expand image_groups → (capture_id, altitude, indices, rotations, query_dir)
+    Runner->>QDirs: _resolve_query_matches(capture_id, idx, rot)
+    QDirs-->>Runner: Query image paths
+    loop Each query image
+        Runner->>Embed: process_query_image(model, info, plan, query_embed_root)
+        Embed->>Load: load_image(Q*/scene_alt_idx_rot*.jpg/png)
+        Load-->>Embed: RGB tensor
+        Embed->>Preproc: build_transform(patch_size, patch_multiple, normalize)
+        Preproc-->>Embed: Resized & normalised tensor
+        Embed->>Extract: global_embedding(model, tensor)
+        Extract-->>Embed: Global feature vector
+        Embed->>Extract: patch_embedding(model, tensor)
+        Extract-->>Embed: Patch tokens
+        Embed->>Post: process_patch_tokens(tokens, variant_params)
+        Post-->>Embed: Filtered tokens + keep_ratio (+optional grid)
+        Embed->>Extract: patch2grid(filtered tokens) if grid absent
+        Extract-->>Embed: H×W×C grid tensor
+        Embed->>Store: Write npy + *_meta.json<br/>/exports/dinov3_query_embeds/{weight}/{alt}/{rotation}/{TokenType}
+        Embed-->>Runner: QueryEmbeddingResult(global_path, patch_path, grid_path)
+        alt run.generate_denseft && grid_path
+            Runner->>Dense: generate_query_dense_feature(grid_path)
+            Dense->>Store: Load QueryPatchGrid_*.npy → PCA pseudo-color → DenseFT/*.png
+        else DenseFT skipped
+            Runner-->>Runner: Continue
+        end
+    end
+    Store-->>Op: Tokens, metadata & DenseFT PNGs ready
+```
