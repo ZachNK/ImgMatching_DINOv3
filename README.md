@@ -324,23 +324,6 @@ dinov3_main/
     └─ pair_vis\
   ```
 
-* **추가 파일 (updated 25.10.30)**
-
-  임베딩 파악을 위한 테스트 모듈:
-
-    `project/Test_patch_embedding.py` 
-    — runs a test/sanity script that loads DINOv3, extracts patch‑level embeddings for a chosen image, and saves or inspects the raw patch token tensors so you can verify patch pipeline behaviour.
-
-    `project/Test_global_embedding.py` 
-    — similar harness for computing the global CLS embedding from DINOv3; it hardcodes image/checkpoint paths and exports the resulting global feature vector.
-
-    `project/feature_map.py` 
-    — end‑to‑end script that loads DINOv3, processes the specified image, computes the full patch–patch cosine similarity matrix, and writes both the flat map and reshaped grid .npy files under /exports.
-
-    `project/display_results.py` 
-    — interactive CLI tool that asks for an original image and up to 100 feature-map images, then builds a Matplotlib figure showing the original on top and all selected maps below with configurable padding; optionally saves the composed figure.
-
-
 ---
 
 ## 2) Docker 이미지 빌드 & 컨테이너 실행
@@ -360,23 +343,112 @@ docker compose exec matching nvidia-smi
 
 ---
 
-## 3) Embeddings
+## 3) 임베딩
 
-The focus of this release is producing reusable DINOv3 embeddings prior to any downstream matching or visualization. Inside the container all artifacts appear under `/exports/...`; on the host the same tree is mounted at `<Your>\<Project_Exports>\<Directory>\dinov3_exports`.
+매칭이나 시각화 이전에 재사용 가능한 DINOv3 임베딩을 생성. \
+컨테이너 내부의 모든 저장 파일들은 `/exports/...`에 생성. \
+호스트는 `<Your>\<Project_Exports>\<Directory>\dinov3_exports`에 마운트.
 
-### 3-1) Token Types & Output Layout
+### 3-1) 임베딩 파이프라인
 
-| Token type | Files | Description | Host path example |
+## 원본 이미지 데이터셋 임베딩 파이프라인 (Sequence Diagram)
+
+```Mermaid
+sequenceDiagram
+    autonumber
+    participant Operator
+    participant Runner as run_manifest.py
+    participant Manifest as manifest.json
+    participant Embed as Test_Embedding.run_global_embedding
+    participant Loader as imatch.loading
+    participant Model as imatch.pretrained
+    participant Transform as imatch.preprocess
+    participant Extract as imatch.extracting
+    participant Post as imatch.postprocess
+    participant Dense as Generate_DenseFT.generate_dense_feature
+
+    Operator->>Runner: parse_args()
+    Runner->>Manifest: read_text()
+    Manifest-->>Runner: manifest config
+    Runner->>Runner: expand_group_entries()
+    Runner->>Embed: run_global_embedding(altitude, index, weight,…)
+    Embed->>Loader: weights_path()/img_path()/load_image()
+    Loader-->>Embed: paths & tensors
+    Embed->>Model: pretrained_model(hub_entry, weight_path)
+    Model-->>Embed: loaded checkpoint
+    Embed->>Transform: build_transform(patch_size, normalize)
+    Transform-->>Embed: preprocessing fn
+    Embed->>Extract: global_embedding()/patch_embedding()
+    Extract-->>Embed: tokens
+    Embed->>Post: process_patch_tokens()
+    Post-->>Embed: filtered tokens & grids
+    Embed-->>Runner: saved token outputs
+    Runner->>Dense: generate_dense_feature(...)
+    Dense->>Loader: weights_path()/file_prefix()
+    Loader-->>Dense: grid path
+    Dense-->>Runner: DenseFT image saved
+```
+
+
+## 쿼리 이미지 임베딩 파이프라인 (Sequence Diagram)
+
+```Mermaid
+sequenceDiagram
+    autonumber
+    participant Operator
+    participant GenQuery as Generate_Query.py
+    participant QueryLib as imatch.querycreating
+    participant QueryEmbed as Test_Embedding4Query.py
+    participant Loader as imatch.loading
+    participant Model as imatch.pretrained
+    participant Transform as imatch.preprocess
+    participant Extract as imatch.extracting
+    participant Post as imatch.postprocess
+    participant DenseQuery as Generate_DenseFT4Query.py
+
+    Operator->>GenQuery: main()
+    GenQuery->>QueryLib: generate_queries_for_directory(src, dst, angles, crop_ratio)
+    QueryLib-->>GenQuery: rotated/cropped query images
+    GenQuery-->>Operator: summary of generated queries
+    Operator->>QueryEmbed: iterate QUERY_DIRS per weight key
+    QueryEmbed->>Loader: weights_path(weight_key)
+    Loader-->>QueryEmbed: hub_entry, dataset_type
+    QueryEmbed->>Model: pretrained_model(hub_entry, ckpt)
+    Model-->>QueryEmbed: loaded model
+    QueryEmbed->>Loader: load_image(query_path)
+    Loader-->>QueryEmbed: tensor
+    QueryEmbed->>Transform: build_transform(...)
+    Transform-->>QueryEmbed: preprocessing fn
+    QueryEmbed->>Extract: global_embedding()/patch_embedding()
+    Extract-->>QueryEmbed: tokens
+    QueryEmbed->>Post: process_patch_tokens()
+    Post-->>QueryEmbed: filtered patch tokens & grid
+    QueryEmbed-->>Operator: saved QueryGlobal/QueryPatchToken/QueryPatchGrid outputs
+    Operator->>DenseQuery: main()
+    DenseQuery->>DenseQuery: iter_grid_files()
+    DenseQuery->>QueryEmbed: load QueryPatchGrid npy
+    QueryEmbed-->>DenseQuery: patch grids
+    DenseQuery-->>Operator: QueryDenseFT PNGs
+```
+
+
+### 3-2) 토큰 종류와 출력 구성
+
+- 파일명 규칙: `{TokenType}_{embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{altitude}_{index}`. Query 출력은 `{scene}_{altitude}_{index}_{tag}`를 덧붙임.
+- `_meta.json`은 기본 파일명에 `_meta`만 추가한 형태.
+- DenseFT PNG는 `Generate_DenseFT.py`(dataset) 또는 `Generate_DenseFT4Query.py`(query)로 PatchGrid를 변환하고, 이후 `files.dense_vis` 슬롯에서 참조.
+
+| 토큰 종류 | 파일 | 설명 | 호스트 경로 예시 |
 | --- | --- | --- | --- |
-| `GlobalToken` | `.npy`, `_meta.json` (queries add `.csv`) | Stores the single CLS/global vector | `<Your>\<Project_Exports>\<Directory>\dinov3_exports\dinov3_embeds\<weight>\<altitude>\GlobalToken` |
-| `PatchToken` | `.npy`, `_meta.json` | Flattened patch tokens (N × C tensor) | `<Your>\<Project_Exports>\<Directory>\dinov3_exports\dinov3_embeds\<weight>\<altitude>\PatchToken` |
-| `PatchGrid` | `.npy`, `_meta.json` | Patch tokens reshaped to H × W × C grids | `<Your>\<Project_Exports>\<Directory>\dinov3_exports\dinov3_embeds\<weight>\<altitude>\PatchGrid` |
-| `DenseFT` | `.png` | PCA-based dense feature visualizations derived from PatchGrid | `<Your>\<Project_Exports>\<Directory>\dinov3_exports\dinov3_embeds\<weight>\<altitude>\DenseFT` |
-| `Query*` | `.npy`, `_meta.json`, Global `.csv` | Embeddings for rotated/cropped query images | `<Your>\<Project_Exports>\<Directory>\dinov3_exports\dinov3_query_embeds\Q<weight_key>\<query_dir>` |
+| `GlobalToken` | `.npy`, `_meta.json` (query는 `.csv` 추가) | CLS/global 벡터를 저장 | `<Your>\<Project_Exports>\<Directory>\dinov3_exports\dinov3_embeds\<weight>\<altitude>\GlobalToken_` |
+| `PatchToken` | `.npy`, `_meta.json` | 평탄화된 패치 토큰 (N × C 텐서) | `<Your>\<Project_Exports>\<Directory>\dinov3_exports\dinov3_embeds\<weight>\<altitude>\PatchToken` |
+| `PatchGrid` | `.npy`, `_meta.json` | 패치 토큰을 H × W × C 그리드로 재배열 | `<Your>\<Project_Exports>\<Directory>\dinov3_exports\dinov3_embeds\<weight>\<altitude>\PatchGrid` |
+| `DenseFT` | `.png` | PatchGrid에서 파생된 PCA 기반 밀집 특성 시각화 | `<Your>\<Project_Exports>\<Directory>\dinov3_exports\dinov3_embeds\<weight>\<altitude>\DenseFT` |
+| `Query*` | `.npy`, `_meta.json`, Global `.csv` | 회전/크롭된 query 이미지 임베딩 | `<Your>\<Project_Exports>\<Directory>\dinov3_exports\dinov3_query_embeds\Q<weight_key>\<query_dir>` |
 
-- Naming pattern: `TokenType_{embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{altitude}_{index}`. Query outputs append `{scene}_{altitude}_{index}_{tag}`.
-- `_meta.json` just adds `_meta` to the base filename.
-- DenseFT PNGs are generated from PatchGrid exports via `Generate_DenseFT.py` (dataset) or `Generate_DenseFT4Query.py` (query) and later referenced through the `files.dense_vis` slot.
+
+
+아티팩트 디렉터리 예시는 아래 구조를 따른다.
 
 ```text
 <Your>\<Project_Exports>\<Directory>\dinov3_exports
@@ -397,59 +469,69 @@ The focus of this release is producing reusable DINOv3 embeddings prior to any d
          └─ QueryPatchGrid_*.npy / _meta.json
 ```
 
-Dense feature PNGs produced from query PatchGrid tensors live under `<Your>\<Project_Exports>\<Directory>\dinov3_exports\dinov3_vis\Q<weight_key>\<query_dir>`.
+Query PatchGrid 텐서에서 생성된 Dense feature PNG는 `<Your>\<Project_Exports>\<Directory>\dinov3_exports\dinov3_vis\Q<weight_key>\<query_dir>` 아래에 위치.
 
-### 3-2) Execution Scripts & Parameters
+### 3-3) 실행 스크립트와 주요 파라미터
 
-- `project/Test_Embedding.py`: runs `run_global_embedding()` for a single altitude/index/weight triple and emits Global/Patch/PatchGrid artifacts.
-- `project/run_manifest.py`: batch runner that parses `project/json/manifest.json`, expands datasets/frames, and optionally calls `Generate_DenseFT.py` when `generate_denseft: true`.
-- `project/Test_Embedding4Query.py`: scans `/exports/Q...` (host `<Your>\<Project_Exports>\<Directory>\dinov3_exports\Q250912161658_200`, etc.) to emit `QueryGlobal/QueryPatch*` outputs per query image.
-- `project/Generate_DenseFT.py`, `project/Generate_DenseFT4Query.py`: convert PatchGrid tensors into 1024×1024 PCA-projected PNGs for datasets and queries respectively.
-- Helper tools (`Generate_Query.py`, `Test_Embedding4Query.py`, etc.) depend on `imatch.loading` path constants, so ensure `.env` provides valid `DATASET_HOST`, `EXPORT_HOST`, and related variables.
+- `project/Test_Embedding.py`: \
+  임베딩 핵심 실행 스크립트. \
+  파라미터 `altitude`/`index`/`weight`의 조합으로 `run_global_embedding()`을 실행하여 `Global`/`Patch`/`PatchGrid` 토큰 파일 (`.npy`) 생성.
 
-Batch example:
+- `project/run_manifest.py`: \
+  일괄 임베딩 실행 할 파라미터 조합 json파일. \
+  `project/json/manifest.json`에서 모든 파라미터 설정값들을 지정하여 임베딩 일괄 수행. \
+  `manifest.json`의 `models.token_jobs`에서 각 패치타입 별 `run` 부분에:\
+  `test_embedding: true` → `Test_Embedding.py`를 호출하여 실행.\
+  `generate_denseft: true` → `Generate_DenseFT.py` 호출까지 이어지는 실행 스크립트.
+
+- `project/Test_Embedding4Query.py`:\
+  `/exports/Q...`(호스트의 경우: e.g. `<Your>\<Project_Exports>\<Directory>\dinov3_exports\Q250912161658_200` )를 순회하며 query 이미지별 `QueryGlobal`/`QueryPatch`/`QueryPatchGrid` 토큰 파일(`.npy`) 출력.
+- `project/Generate_DenseFT.py`, `project/Generate_DenseFT4Query.py`: PatchGrid 텐서를 1024×1024 PCA 사영 PNG로 변환해 dataset/query 시각화를 만듦.
+- 보조 도구들(`Generate_Query.py`, `Test_Embedding4Query.py` 등)은 `imatch.loading` 경로 상수를 사용하므로 `.env`에 `DATASET_HOST`, `EXPORT_HOST` 등 유효한 변수를 반드시 지정.
+
+배치 실행 예시:
 
 ```powershell
 docker compose exec matching python project/run_manifest.py --manifest project/json/manifest.json
 ```
 
-Single-run experiment:
+실행 예시:
 
 ```powershell
 docker compose exec matching python -c "from Test_Embedding import run_global_embedding; run_global_embedding(altitude=400, index=1, weight='vitl16', target_res=1024, variant='mutual', variant_params={'norm_threshold':0.8})"
 ```
 
-Key arguments for `run_global_embedding()`:
+`run_global_embedding()`의 주요 인자:
 
-| Argument | Purpose | Notes |
+| 인자 | 용도 | 비고 |
 | --- | --- | --- |
-| `altitude` | Capture altitude registered in `data_key.json` | e.g. `400` |
-| `index` | Frame index inside the altitude | `1` → `_0001` |
-| `weight` | `weight_key` (`vitb16`, `vitl16`, `cxTiny`, …) | maps to `/opt/weights` |
-| `target_res` | Resize resolution for the input image | default `1024`; affects PatchGrid |
-| `variant` | Patch-token post-process (`raw`, `mutual`, `topk`, `subsample`, …) | implemented in `process_patch_tokens()` |
-| `embedding_cfg` | Optional label inserted in filenames | default `res{target_res}_ImageNet` |
-| `variant_params` | Dict overriding variant defaults | e.g. `{"topk": 256}` |
-| `output_plan` | Controls which artifacts persist | `{global|patch|grid: {"npy": bool, "json": bool}}` |
+| `altitude` | `data_key.json`에 등록된 촬영 고도 | 예: `400` |
+| `index` | 고도 내 프레임 인덱스 | `1` → `_0001` |
+| `weight` | `weight_key` (`vitb16`, `vitl16`, `cxTiny`, …) | `/opt/weights` 매핑 |
+| `target_res` | 입력 이미지를 리사이즈할 해상도 | 기본 `1024`, PatchGrid에 영향 |
+| `variant` | 패치 토큰 후처리(`raw`, `mutual`, `topk`, `subsample`, …) | `process_patch_tokens()` 구현 참고 |
+| `embedding_cfg` | 파일명에 삽입할 선택적 레이블 | 기본 `res{target_res}_ImageNet` |
+| `variant_params` | variant 기본값을 덮어쓰는 dict | 예: `{"topk": 256}` |
+| `output_plan` | 어떤 아티팩트를 남길지 제어 | `{global|patch|grid: {"npy": bool, "json": bool}}` |
 
-`run_manifest.py` exposes the same knobs under `jobs[].embedding`; toggle `generate_denseft` to chain DenseFT creation. For query embeddings, update `QUERY_DIRS`, `VAR_WEIGHT_KEYS`, `VARIANT`, and `VARIANT_PARAMS` inside `Test_Embedding4Query.py`.
+`run_manifest.py` 역시 `jobs[].embedding` 아래에서 동일한 옵션을 노출하며, `generate_denseft`를 켜면 DenseFT 생성까지 연속 실행. Query 임베딩은 `Test_Embedding4Query.py` 안의 `QUERY_DIRS`, `VAR_WEIGHT_KEYS`, `VARIANT`, `VARIANT_PARAMS`를 수정해 제어.
 
-### 3-3) Patch Token Variants
+### 3-4) 패치 토큰 변형
 
-`imatch/postprocess.py` registers the available strategies:
+`imatch/postprocess.py`에 등록된 전략은 다음과 같다.
 
-| Variant | Default params | Behavior | Output impact |
+| Variant | 기본 파라미터 | 동작 | 출력 영향 |
 | --- | --- | --- | --- |
-| `raw` | none | Keeps every patch token | `keep_ratio = 1.0`; PatchGrid size unchanged |
-| `mutual` | `norm_threshold = 0.75` | Drops low-norm tokens (mutual-kNN proxy) | `matching_count` / `mutual_knn_tokens` reflect survivors |
-| `topk` | `topk = 128` | Selects highest-norm `k` tokens | Logs `params.topk` and effective token count |
-| `subsample` | `stride = 2` | Strided subsampling over the reshaped grid | `grid_shape` plus `keep_ratio` describe the reduced resolution |
+| `raw` | 없음 | 모든 패치 토큰을 유지 | `keep_ratio = 1.0`, PatchGrid 크기 유지 |
+| `mutual` | `norm_threshold = 0.75` | Norm이 낮은 토큰을 제거(mutual-kNN proxy) | `matching_count`/`mutual_knn_tokens`로 생존 토큰 기록 |
+| `topk` | `topk = 128` | Norm이 가장 높은 `k`개의 토큰 선택 | `params.topk`와 실제 토큰 수를 로그 |
+| `subsample` | `stride = 2` | 재구성된 그리드에서 스트라이드 샘플링 | `grid_shape`와 `keep_ratio`로 축소 해상도 기재 |
 
-Override these defaults via `variant_params` (single runs) or manifest `params` (batch). `_meta.json` captures the resulting ratios so you can audit the effect quickly.
+단일 실행에서는 `variant_params`, 배치에서는 manifest `params`로 위 기본값을 덮어쓸 수 있으며, 적용 결과는 `_meta.json`의 비율 정보로 빠르게 확인 가능.
 
-### 3-4) Metadata Schema
+### 3-5) 메타데이터 스키마
 
-Every `_meta.json` shares the same structure:
+모든 `_meta.json`은 동일한 구조를 사용한다.
 
 ```json
 {
@@ -463,23 +545,23 @@ Every `_meta.json` shares the same structure:
 }
 ```
 
-- `config`: embedding parameters (`embedding_cfg`, `variant`, `variant_params`, `weight_id`, `dataset_type`, `altitude`, `index`, `prefix`, `target_res`, `rotations`, `aggregation`). Query outputs also include `query.source_file`, `query.tag`, and `query.query_dir`.
-- `files`: pointers to emitted assets.
+- `config`: `embedding_cfg`, `variant`, `variant_params`, `weight_id`, `dataset_type`, `altitude`, `index`, `prefix`, `target_res`, `rotations`, `aggregation` 등 임베딩 파라미터를 보관. Query 출력에는 `query.source_file`, `query.tag`, `query.query_dir`도 포함.
+- `files`: 생성된 자산 위치.
 
-| Key | Meaning |
+| 키 | 의미 |
 | --- | --- |
-| `vector` | `.npy` containing the main tensor (Global/Patch/Grid/Query) |
-| `csv` | Global token serialized as CSV (query pipeline) |
-| `patch_tokens` | Patch token `.npy` reference |
-| `patch_grid` | Query PatchGrid `.npy` reference |
-| `dense_vis` | Placeholder for DenseFT PNGs |
-| `index` | Reserved for future ANN/Faiss indices |
+| `vector` | Global/Patch/Grid/Query의 주 텐서 `.npy` |
+| `csv` | Query 파이프라인에서 사용하는 Global 토큰 CSV |
+| `patch_tokens` | Patch token `.npy` 경로 |
+| `patch_grid` | Query PatchGrid `.npy` 경로 |
+| `dense_vis` | DenseFT PNG 참조 |
+| `index` | 추후 ANN/Faiss 인덱스 용 슬롯 |
 
-- `metrics`: Global tokens fix `token_count = 1`; Patch tokens log `token_count`, `embedding_dim`, `matching_count`, `mutual_knn_tokens`, `keep_ratio`; Patch grids add `grid_shape` and derived counts. Slots such as `recall@k`, `mAP`, `top1_precision` remain for downstream experiments.
-- `timing_ms`: `global_forward`, `patch_forward`, `postprocess`, `index_build`, `query`, `pipeline_total`.
-- `resources`: `gpu_peak_mem_mb`, `embedding_storage_bytes`, `index_size_bytes` (future use).
+- `metrics`: Global 토큰은 `token_count = 1`로 고정하며, Patch 토큰은 `token_count`, `embedding_dim`, `matching_count`, `mutual_knn_tokens`, `keep_ratio`를 기록. PatchGrid는 여기에 `grid_shape` 및 파생 카운트를 추가하고, `recall@k`, `mAP`, `top1_precision` 등의 슬롯은 후속 실험용으로 비워둠.
+- `timing_ms`: `global_forward`, `patch_forward`, `postprocess`, `index_build`, `query`, `pipeline_total` 시간을 저장.
+- `resources`: `gpu_peak_mem_mb`, `embedding_storage_bytes`, `index_size_bytes` 등 리소스 메트릭(향후 확장)을 위한 공간.
 
-Query metas (`QueryGlobal_*_meta.json`, `QueryPatchToken_*_meta.json`) follow the same schema and always populate `config.query` plus `files.csv`. After creating DenseFT PNGs, place them beside the `.npy` files and update `files.dense_vis` when traceability is required.
+Query 메타(`QueryGlobal_*_meta.json`, `QueryPatchToken_*_meta.json`)도 동일한 스키마를 따르며 항상 `config.query`와 `files.csv`를 채운다. DenseFT PNG를 생성한 뒤에는 `.npy`와 같은 위치에 두고, 추적이 필요하면 `files.dense_vis`를 업데이트.
 
-> **Heads-up**: Matching/visualization sections will return once those flows stabilize; for now the README intentionally documents embedding steps only.
+> **참고**: 매칭/시각화 파트는 흐름이 안정화된 이후 다시 문서화될 예정이며, 현재 README는 임베딩 단계만 다룬다.
 

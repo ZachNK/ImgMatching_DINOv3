@@ -1,3 +1,4 @@
+# project/Test_Embedding.py
 from __future__ import annotations
 import math
 from pathlib import Path
@@ -27,21 +28,49 @@ from imatch.utils import (
 )
 from imatch.postprocess import process_patch_tokens
 
-# Default parameters kept for manual single-run usage.
+# 디버깅용, 단일 실행 파라미터
 varAltitude = 450
 varIndex = 1
 varWeight = "vitb16"
 varTargetRes = 1024
 
+## 전역 상수
 REPO_DIR = Path("/workspace/dinov3")
-
-
 TOKEN_OUTPUT_KEYS = ("global", "patch", "grid")
 
-
+## 출력 계획 정규화 함수: 
 def _normalize_output_plan(
     plan: Optional[Dict[str, Dict[str, bool]]]
 ) -> Dict[str, Dict[str, bool]]:
+    """
+    정규화된 출력 계획을 반환합니다. plan이 None인 경우 모든 토큰 유형에 대해 npy 및 json 출력을 활성화합니다.
+    각 토큰 유형에 대해 plan이 제공된 경우, npy 및 json 출력 여부를 개별적으로 설정합니다.
+    입력:
+        - plan: Optional[Dict[str, Dict[str, bool]]]
+    출력:
+        - Dict[str, Dict[str, bool]]
+
+    e.g.1)
+    _normalize_output_plan({
+        "global": {"npy": True, "json": False},
+        "patch": {"npy": True, "json": True},
+        "grid": {"npy": False, "json": True}
+    })
+    → returns: {
+        "global": {"npy": True, "json": False}, 
+        "patch": {"npy": True, "json": True},
+        "grid": {"npy": False, "json": True}
+    }
+
+    e.g.2)
+    _normalize_output_plan(None)
+    → returns: {
+        "global": {"npy": True, "json": True}, 
+        "patch": {"npy": True, "json": True},
+        "grid": {"npy": True, "json": True}
+    }
+    """
+    
     if plan is None:
         return {key: {"npy": True, "json": True} for key in TOKEN_OUTPUT_KEYS}
     normalized = {key: {"npy": False, "json": False} for key in TOKEN_OUTPUT_KEYS}
@@ -232,7 +261,7 @@ def run_global_embedding(
 
     print(
         "\n",
-        "================= Debug: Test Global Embedding =================\n",
+        "================= Debug: Embedding (Datasets) =================\n",
         "INPUT: \n",
         f"\tREPO_DIR: \033[33m{REPO_DIR}\033[0m\n", # e.g. /workspace/dinov3
         f"\tIMAGE_PATH: \033[33m{image_path}\033[0m\n", # e.g. /opt/datasets/250912161658_200/250912161658_200_0150.jpg
@@ -251,7 +280,7 @@ def run_global_embedding(
         f"\tTest Global embedding DINOv3 numpy array -> \033[34m{npy_path}\033[0m\n",
         f"\tTest Patch token numpy array             -> \033[34m{patch_path}\033[0m\n",
         f"\tTest Patch grid numpy array              -> \033[34m{grid_path}\033[0m\n",
-        "================= Debug: Test Global Embedding =================\n",
+        "================= Debug: Embedding (Datasets) =================\n",
     )
 
     print("\nLoading model and weight")
