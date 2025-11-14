@@ -330,6 +330,7 @@ dinov3_main/
 - 본 프로젝트 `dinov3_main`에서 실행한 후 도출한 결과들을 저장할 디렉토리 `dinov3_exports`에 생성한다.\
   최종 경로 상태는 아래와 같다:
 
+  
   ```text
   <Your>\<Project>\<Directory>\
   ├─ dinov3_main\
@@ -644,3 +645,242 @@ Query 메타(`QueryGlobal_*_meta.json`, `QueryPatchToken_*_meta.json`)도 동일
 
 > **참고**: 매칭/시각화 파트는 흐름이 안정화된 이후 다시 문서화될 예정이며, 현재 README는 임베딩 단계만 다룬다.
 
+## 4) 트러블슈팅
+
+### i) run_manifest.py를 실행하다가 아래와 같은 에러:
+
+<details>
+<summary>에러 예시</summary>
+
+```powershell
+
+  ================= Debug: Embedding (Datasets) =================
+  INPUT:
+          REPO_DIR: /workspace/dinov3
+          IMAGE_PATH: /opt/datasets/250915084516_100/250915084516_100_0212.jpg
+          HUB_ENTRY: dinov3_vit7b16
+          weight_path: /opt/weights/01_ViT_LVD-1689M/dinov3_vit7b16_pretrain_lvd1689m-a955f4ea.pth
+          device: cuda
+  OUTPUT:
+          [config] embedding_cfg: res1024_ImageNet
+          [config] variant: raw
+          [config] altitude/index: 100/0212 (prefix=100_0212)
+          [outputs] Test Global embedding DINOv3 numpy array -> /exports/dinov3_embeds/vit7b16/100/GlobalToken/GlobalToken_res1024_ImageNet_raw_dinov3_vit7b16_LVD_100_0212.npy
+          [outputs] Test Patch token numpy array             -> /exports/dinov3_embeds/vit7b16/100/PatchToken/PatchToken_res1024_ImageNet_raw_dinov3_vit7b16_LVD_100_0212.npy
+          [outputs] Test Patch grid numpy array              -> /exports/dinov3_embeds/vit7b16/100/PatchGrid/PatchGrid_res1024_ImageNet_raw_dinov3_vit7b16_LVD_100_0212.npy
+  ================= Debug: Embedding (Datasets) =================
+
+
+  Loading model and weight
+  [pretrained:1] hub.load entry='dinov3_vit7b16' from /workspace/dinov3
+  ⠸       Processing... 0:04:53
+  >>>>>>>>>>>>>>> Loading model and weight completed
+  ⠋       Processing... 0:00:00
+          [Global Embedding 1] Input image shape: torch.Size([3, 1024, 1024])
+  >>>>>>>>>>>>>>> Preparing input image completed
+
+
+  Resizing and transforming input
+          [Global Embedding 2] Model patch size: (16, 16)
+          [Global Embedding 3] Image resized to: 1024x1024
+
+  [imageprocessing] Normalization: web dataset (LVD-1689M)
+
+  ⠋       Processing... 0:00:00
+          [Global Embedding 4]
+  transform: Compose(
+      ConvertImageDtype()
+      Resize(size=(1024, 1024), interpolation=bicubic, max_size=None, antialias=True)
+      Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+  )
+  >>>>>>>>>>>>>>> Resizing and transforming input completed
+
+
+  Preparing input tensor
+  ⠋       Processing... 0:00:00
+          [Global Embedding 5] Input tensor shape: torch.Size([1, 3, 1024, 1024])
+  >>>>>>>>>>>>>>> Preparing input tensor completed
+
+
+  Extracting global and patch tokens
+  ⠇       Processing... 0:00:58
+  Traceback (most recent call last):
+    File "/workspace/project/run_manifest.py", line 442, in <module>
+      main()
+    File "/workspace/project/run_manifest.py", line 438, in main
+      execute_manifest(manifest_path)
+    File "/workspace/project/run_manifest.py", line 411, in execute_manifest
+      run_global_embedding(
+    File "/workspace/project/Test_Embedding.py", line 328, in run_global_embedding
+      global_tokens = progress_bar(global_embedding, model, input_tensor, device)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/workspace/project/imatch/utils.py", line 41, in progress_bar
+      result = run(*args, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^
+    File "/opt/conda/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+      return func(*args, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^
+    File "/workspace/project/imatch/extracting.py", line 26, in global_embedding
+      out = model.forward_features(x) if hasattr(model, "forward_features") else model(x)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/workspace/dinov3/dinov3/models/vision_transformer.py", line 265, in forward_features
+      return self.forward_features_list([x], [masks])[0]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/workspace/dinov3/dinov3/models/vision_transformer.py", line 234, in forward_features_list
+      x = blk(x, rope_sincos)
+          ^^^^^^^^^^^^^^^^^^^
+    File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+      return self._call_impl(*args, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+      return forward_call(*args, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/workspace/dinov3/dinov3/layers/block.py", line 210, in forward
+      return self._forward_list(x_or_x_list, rope_list=rope_or_rope_list)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/workspace/dinov3/dinov3/layers/block.py", line 193, in _forward_list
+    File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+      return forward_call(*args, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/workspace/dinov3/dinov3/layers/block.py", line 210, in forward
+      return self._forward_list(x_or_x_list, rope_list=rope_or_rope_list)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/workspace/dinov3/dinov3/layers/block.py", line 193, in _forward_list
+      return forward_call(*args, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/workspace/dinov3/dinov3/layers/block.py", line 210, in forward
+      return self._forward_list(x_or_x_list, rope_list=rope_or_rope_list)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/workspace/dinov3/dinov3/layers/block.py", line 193, in _forward_list
+    File "/workspace/dinov3/dinov3/layers/block.py", line 210, in forward
+      return self._forward_list(x_or_x_list, rope_list=rope_or_rope_list)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/workspace/dinov3/dinov3/layers/block.py", line 193, in _forward_list
+      return self._forward_list(x_or_x_list, rope_list=rope_or_rope_list)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/workspace/dinov3/dinov3/layers/block.py", line 193, in _forward_list
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/workspace/dinov3/dinov3/layers/block.py", line 193, in _forward_list
+      x_attn = x + self.ls1(self.attn(self.norm1(x), rope=rope))
+    File "/workspace/dinov3/dinov3/layers/block.py", line 193, in _forward_list
+      x_attn = x + self.ls1(self.attn(self.norm1(x), rope=rope))
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      x_attn = x + self.ls1(self.attn(self.norm1(x), rope=rope))
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+      return self._call_impl(*args, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      return self._call_impl(*args, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+      return forward_call(*args, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/workspace/dinov3/dinov3/layers/attention.py", line 90, in forward
+      x = self.proj(attn_v)
+          ^^^^^^^^^^^^^^^^^
+    File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+      return self._call_impl(*args, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+      return forward_call(*args, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/opt/conda/lib/python3.11/site-packages/torch/nn/modules/linear.py", line 117, in forward
+      return F.linear(input, self.weight, self.bias)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  RuntimeError: CUDA error: CUBLAS_STATUS_EXECUTION_FAILED when calling cublasLtMatmul with transpose_mat1 1 transpose_mat2 0 m 4096 n 4101 k 4096 mat1_ld 4096 mat2_ld 4096 result_ld 4096 abcType 0 computeType 68 scaleType 0
+  root@72e8d0e2e330:/workspace/project#
+  ```
+
+</details>
+
+### ii) 진단
+
+* `project/run_manifest.py (lines 406-416)`: `run_manifest.py`는 `run_global_embedding()`을 호출하면서 `vits16`, `vits16+`, `vit7b16`을 순차 처리.
+* run_global_embedding() 안에서 global_tokens = progress_bar(global_embedding, model, input_tensor, device)가 실행될 때(project/Test_Embedding.py (lines 323-333)), 실질적으로 imatch/extracting.global_embedding()이 모델의 forward_features를 돌림 (project/imatch/extracting.py (lines 19-27)).
+* 그 직전에 pretrained_model()이 7B 모델을 FP32 그대로 GPU에 로드함 (project/imatch/pretrained.py (lines 55-60)). 
+* 이 단계에서만도 약 28 GB의 VRAM이 필요. 
+* RTX 4090(24 GB)은 여기서 이미 한계에 가깝고, 이어지는 global_embedding() 호출은 1024×1024 이미지를 처리하도록 되어 있어(project/Test_Embedding.py (lines 89-100), project/json/manifest.json (lines 42-78)) 64×64=4096개의 패치 토큰이 생성. 
+* 7B 모델은 8192차원 히든, 64 헤드를 쓰므로 각 블록에서 Q/K/V·어텐션 출력 등 수 GB의 활성 메모리를 추가로 잡아야 함. 
+* 이 추가 메모리 확보가 필요해지는 순간 dinov3/layers/attention.py의 마지막 프로젝션(self.proj)에서 cublasLtMatmul 호출이 실패하며 보고된 오류가 발생.
+* 따라서 “오래 돌려서”가 아니라 7B 모델을 FP32·1024 입력으로 실행하는 구조 자체가 24 GB VRAM을 넘긴 것이 원인.
+* run_manifest.py가 token_jobs[0]의 GlobalToken 단계에서 weight_key = "vit7b16"을 처리하던 중 run_global_embedding()에서 예외 (project/Test_Embedding.py (lines 323-337) 참고). 
+* 이 경로는 progress_bar(global_embedding, …)로 곧바로 DINOv3 모델의 forward_features를 실행.
+* 매니페스트에는 vit7b16과 vit7b16sat가 기본으로 포함돼 있음 (project/json/manifest.json (line 7)).
+* 이 키는 project/json/data_key.json (lines 23-28)에 따라 허브 엔트리 dinov3_vit7b16과 7B 체크포인트(/opt/weights/...dinov3_vit7b16_pretrain_lvd1689m-a955f4ea.pth)로 해석.
+* 스택트레이스 최하단은 /workspace/dinov3/dinov3/layers/attention.py (line 90)의 마지막 nn.Linear에서 cublasLtMatmul이 실패했다고 알려 줌. 
+* 행렬 크기(m=4096, n=4101, k=4096)는 1024×1024 입력(=64×64 패치 → 4096 패치 토큰) + CLS + 4개의 register 토큰이 만들어내는 정확한 토큰 수입니다. 즉, 7B 모델의 self-attention 단계가 GPU 메모리 한도를 넘기면서 cuBLAS 커널 런치가 중단된 것.
+* 현재 장비는 RTX 4090 24GB(WDDM)로 확인됩니다(nvidia-smi). project/imatch/pretrained.py (lines 55-61)에서 모델을 바로 model.eval().to(device)로 올리고 있으며 이 경로에는 AMP/half-precision이 없기 때문에 체크포인트가 FP32라면 파라미터만 6B×4byte ≈ 24+ GB, 여기에 활성값(한 레이어마다 ≳1GB)이 추가돼 VRAM이 부족해짐. 
+* VRAM이 임계점에 도달하면 PyTorch가 OOM 대신 CUBLAS_STATUS_EXECUTION_FAILED를 던지는 것이 흔한 패턴.
+
+### iii) 해결 방안
+
+### (1) 7B 모델 제외
+
+* 현재 GPU에서 돌릴 수 있는 모델(vits16, vitl16, convnext 계열 등)만 남기고 project/json/manifest.json (line 7)의 weight_key 배열에서 vit7b16 / vit7b16sat를 제거하거나 별도 매니페스트로 분리해야 함.
+* 이후 python project/run_manifest.py --manifest project/json/manifest.json을 다시 실행하면 나머지 모델은 문제 없이 진행됨.
+
+### (2) 7B 모델 제외하지 않을 경우
+
+* 48GB 이상 VRAM(A6000, A100 80GB 등) 장비에서 실행
+* 다음 코드 수정으로 메모리를 줄임:
+* project/imatch/pretrained.py에서 모델 로딩 직후 model = model.to(device=device, dtype=torch.bfloat16)로 내림
+* run_global_embedding() 둘레에 torch.autocast(device_type="cuda", dtype=torch.bfloat16) 컨텍스트를 추가해 입력 텐서도 같은 dtype으로 변환.
+* 필요하면 매니페스트에서 vit7b16에 한해 target_res를 1024→518 이하로 낮춰 토큰 수를 낮춤.
+* cuBLAS 오류가 발생한 후에는 CUDA 컨텍스트가 망가져 있으므로 파이썬 프로세스/컨테이너를 재시작한 뒤 다시 시도.
+
+
+### (3) 메모리 최적화를 적용할 수 있는 지점들
+
+#### (3-1) 모델 로딩 시 dtype 축소
+
+* project/imatch/pretrained.py (lines 55-60)에서 model.eval().to(device)를 model.to(device=device, dtype=torch.bfloat16).eval()처럼 바꿔 FP16/BF16으로 올리면 파라미터 메모리를 절반 가까이 줄일 수 있음. 
+* 이때 state_dict도 같은 dtype으로 변환하거나 model = model.to(dtype) 이후 load_state_dict를 호출.
+
+### 2. 추론 경로 AMP 적용
+
+* run_global_embedding()/run_patch_embedding()을 부르는 구간(project/Test_Embedding.py (lines 323-338))을 with torch.autocast(device_type="cuda", dtype=torch.bfloat16):로 감싸고, global_embedding 내부에서 입력 텐서도 x = x.to(device=device, dtype=torch.bfloat16, non_blocking=True)로 맞추면 활성 메모리가 크게 줄듦 (project/imatch/extracting.py (lines 19-55)).
+
+### 3. 입력 해상도 낮추기
+
+* 매니페스트의 target_res를 1024에서 768 혹은 512로 내리면 토큰 수가 4096 → 2304/1024로 감소해 어텐션 메모리 사용량이 급격히 줄어듦 (project/json/manifest.json (lines 40-78)). 
+* 7B 모델은 해상도·토큰 수에 따라 메모리 요구량이 급증하므로 가장 확실한 회피책.
+
+### 4. 모델별 실행 후 정리
+
+* 한 weight 처리가 끝난 뒤 del model; torch.cuda.empty_cache()를 호출해 다음 weight가 깨끗한 상태에서 시작하도록 하는 것도 도움 됨. 
+* 이 로직은 run_manifest.py에서 weight 루프 종료 시점에 추가할 수 있음.
+* 결론적으로, 현 구조에서는 vit7b16만 돌려도 다시 같은 에러가 나며, 위 최적화(특히 dtype/해상도 축소) 중 하나 이상을 적용해야 24 GB GPU에서 성공적으로 추론 가능함.
+
+### 5. 하드웨어 쪽 선택지
+
+**A. VRAM이 큰 GPU로 교체**
+
+* 가장 단순한 해결책
+* vit7b16을 1024² 입력으로 FP32/FP16 추론하려면 최소 32 GB, 여유까지 포함하면 48 GB 이상이 안전 
+* 실사용 예: RTX 6000 Ada 48 GB, RTX 6000 (Ampere) 48 GB, A6000 48 GB, A40 48 GB, A100/H100 80 GB, L40/L40S 48 GB 등.
+
+**B. 멀티-GPU + 모델 병렬화**
+
+* NVLink로 묶인 2~4장의 GPU에 모델을 나눠載되면 단일 GPU VRAM 한계를 넘길 수 있음. 
+* PyTorch의 모델 병렬이나 Colossal-AI/Megatron-LM 같은 프레임워크로 파라미터를 분산시키고, torchrun으로 실행합니다. 
+* 구성 및 코드 변경이 크지만 하드웨어 교체 없이 VRAM을 합칠 수 있습니다.
+
+**C. 전용 서버/워크스테이션**
+
+* 위 카드가 장착된 워크스테이션(예: Dell Precision, HP Z8, Supermicro 등)이나 DGX 스테이션 같은 고급 장비를 사용하면 안정적인 전원/냉각까지 한 번에 확보할 수 있음.
+
+
+**D. 클라우드 GPU 인스턴스**
+
+* AWS p4d/p5, GCP A2/A3, Azure ND v5/NC H100 등 HBM 40–80 GB급 GPU 인스턴스를 대여해 작업할 수 있음. 초기 비용 없이 필요한 기간만 사용하고, 네트워크 대역폭과 데이터 업로드를 고려하면 됨.
+
+**F. 외장 GPU/PCIe 확장**
+
+* 데스크톱이라면 PCIe 슬롯과 전원 용량을 체크해 48 GB급 GPU를 추가 장착하거나 eGPU 박스를 이용할 수 있음. (eGPU는 대역폭 제약이 있어 권장순위는 낮음.)
+
+위 중 한 가지를 선택하면 vit7b16 실행 시 “CUBLAS_STATUS_EXECUTION_FAILED” 같은 VRAM 부족 오류를 피할 수 있음.
