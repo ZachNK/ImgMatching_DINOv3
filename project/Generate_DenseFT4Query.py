@@ -72,7 +72,7 @@ def save_dense_feature(grid_path: Path, output_path: Path) -> Path:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray((rgb_up * 255).astype("uint8")).save(output_path)
-    print(f"[saved] DenseFT -> \033[32m{output_path}\033[0m")
+    print(f"\t\033[32m[saved] DenseFT -> {output_path}\033[0m")
     return output_path
 
 
@@ -81,6 +81,13 @@ def generate_query_dense_feature(
     output_path: Path | None = None,
 ) -> Path:
     target_path = output_path or derive_dense_output_path(grid_path)
+    print(
+        "\n",
+        "================= Debug: Extracting Dense Feature (Query) =================\n",
+        f"\t[info] INPUT: \033[33m{grid_path}\033[0m\n",
+        f"\t[info] OUTPUT: \033[33m{target_path}\033[0m\n",
+        "================= Debug: Extracting Dense Feature (Query) =================\n",
+    )
     return save_dense_feature(grid_path, target_path)
 
 

@@ -518,7 +518,7 @@ def execute_manifest(manifest_path: Path) -> None:
             if device.type == "cuda":
                 torch.cuda.empty_cache()
 
-    print(f"\nProcessed {processed} query images across {job_counter} weight jobs.")
+    print(f"\n\033[32mProcessed {processed} query images across {job_counter} weight jobs.\033[0m")
     if failures:
         print("\n=== Failures ===")
         for entry in failures:

@@ -266,20 +266,15 @@ def run_global_embedding(
         f"\tREPO_DIR: \033[33m{REPO_DIR}\033[0m\n", # e.g. /workspace/dinov3
         f"\tIMAGE_PATH: \033[33m{image_path}\033[0m\n", # e.g. /opt/datasets/250912161658_200/250912161658_200_0150.jpg
         f"\tHUB_ENTRY: \033[33m{hub_entry}\033[0m\n", # e.g. dinov3_vits16
-        f"\tkey_path: \033[33m{weight_path}\033[0m\n", # e.g. /opt/weights/03_ViT_SAT-493M/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth
+        f"\tweight_path: \033[33m{weight_path}\033[0m\n", # e.g. /opt/weights/03_ViT_SAT-493M/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth
         f"\tdevice: \033[33m{device}\033[0m\n", # e.g. "cuda"
         "OUTPUT: \n",
         f"\t[config] embedding_cfg: \033[33m{resolved_embedding_cfg}\033[0m\n",
         f"\t[config] variant: \033[33m{resolved_variant}\033[0m\n",
         f"\t[config] altitude/index: \033[33m{altitude_str}/{index_str}\033[0m (prefix=\033[33m{prefix}\033[0m)\n",
-        (
-            f"\t[outputs] global(npy/json)=\033[33m{int(global_plan['npy'])}/{int(global_plan['json'])}\033[0m "
-            f"patch=\033[33m{int(patch_plan['npy'])}/{int(patch_plan['json'])}\033[0m "
-            f"grid=\033[33m{int(grid_plan['npy'])}/{int(grid_plan['json'])}\033[0m\n"
-        ),
-        f"\tTest Global embedding DINOv3 numpy array -> \033[34m{npy_path}\033[0m\n",
-        f"\tTest Patch token numpy array             -> \033[34m{patch_path}\033[0m\n",
-        f"\tTest Patch grid numpy array              -> \033[34m{grid_path}\033[0m\n",
+        f"\t[outputs] Test Global embedding DINOv3 numpy array -> \033[34m{npy_path}\033[0m\n",
+        f"\t[outputs] Test Patch token numpy array             -> \033[34m{patch_path}\033[0m\n",
+        f"\t[outputs] Test Patch grid numpy array              -> \033[34m{grid_path}\033[0m\n",
         "================= Debug: Embedding (Datasets) =================\n",
     )
 

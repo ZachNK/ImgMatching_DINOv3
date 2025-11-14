@@ -250,7 +250,24 @@ def process_query_image(
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
 
-    print(f"\n[Query] Processing {info.source} -> \033[36m{altitude_dir}\033[0m")
+    print(
+        "\n",
+        "================= Debug: Embedding (Query) =================\n",
+        "INPUT: \n",
+        f"\t[Query] REPO_DIR: \033[33m{REPO_DIR}\033[0m\n", # e.g. /workspace/dinov3
+        f"\t[Query] IMAGE_PATH: \033[33m{info.source}\033[0m\n",
+        f"\t[Query] HUB_ENTRY: \033[33m{hub_entry}\033[0m\n", # e.g. dinov3_vits16
+        f"\t[Query] weight_path: \033[33m{weight_key}\033[0m\n", # e.g. /opt/weights/03_ViT_SAT-493M/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth
+        f"\t[Query] device: \033[33m{device}\033[0m\n", # e.g. "cuda"
+        "OUTPUT: \n",
+        f"\t[config] embedding_cfg: \033[33m{resolved_embedding_cfg}\033[0m\n",
+        f"\t[config] variant: \033[33m{variant}\033[0m\n",
+        f"\t[config] altitude/index: \033[33m{info.altitude}/{info.rotation}\033[0m\n",
+        f"\tQuery Global embedding DINOv3 numpy array -> \033[34m{npy_path}\033[0m\n",
+        f"\tQuery Patch token numpy array             -> \033[34m{patch_path}\033[0m\n",
+        f"\tQuery Patch grid numpy array              -> \033[34m{grid_path}\033[0m\n",
+        "================= Debug: Embedding (Query) =================\n",
+        )
 
     img_tensor = progress_bar(load_image, info.source.as_posix())
 

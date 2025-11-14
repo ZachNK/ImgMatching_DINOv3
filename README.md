@@ -3,6 +3,68 @@
 Docker Desktop 위에서 DINOv3 기반 이미지 매칭과 시각화를 수행하기 위한 프로젝트.  
 컨테이너 안에서는 1:1 매칭을 수행하도록 구성되어 있으며, 결과(JSON/PNG)는 호스트의 지정된 디렉터리에 저장.
 
+### 시스템 구성도
+
+```mermaid
+graph TD
+    %% Config sources
+    M[manifest.json]
+    MQ[manifestQuery.json]
+    DK[data_key.json]
+
+    %% Dataset batch pipeline
+    M --> RM[run_manifest.py]
+    DK --> RM
+    RM --> TE[Test_Embedding.py]
+    TE --> EMB[(EMBED_ROOT<br/>Global/Patch/Grid/DenseFT)]
+    RM --> GDF[Generate_DenseFT.py]
+    GDF -->|PatchGrid npy| EMB
+    GDF -->|DenseFT PNG| EMB
+
+    %% Query prep + pipeline
+    GQ[Generate_Query.py] --> QC[querycreating.py]
+    QC --> QSRC[/Q* rotation+crop dirs/]
+    QSRC --> RMQ
+    MQ --> RMQ[run_manifestQuery.py]
+    DK --> RMQ
+    RMQ --> TEQ[Test_Embedding4Query.py]
+    TEQ --> QEMB[(QUERY_EMBED_ROOT<br/>Global/Patch/Grid/DenseFT)]
+    RMQ --> GDFQ[Generate_DenseFT4Query.py]
+    GDFQ -->|PatchGrid npy| QEMB
+    GDFQ -->|DenseFT PNG| QEMB
+
+    %% Shared core modules
+    subgraph IMATCH Core
+        IL[loading.py]
+        IPR[pretrained.py]
+        IPP[preprocess.py]
+        IEX[extracting.py]
+        IPO[postprocess.py]
+        IM[matching.py]
+        IU[utils.py]
+        IS[schema.py]
+    end
+
+    TE --> IL
+    TE --> IPP
+    TE --> IPR
+    TE --> IEX
+    TE --> IPO
+    TE --> IU
+    IEX --> IM
+
+    TEQ --> IL
+    TEQ --> IPP
+    TEQ --> IPR
+    TEQ --> IEX
+    TEQ --> IPO
+    TEQ --> IU
+
+    GQ --> IU
+    IS -. guides .-> IM
+```
+
+
 ---
 
 ## 0) 요구 사항
@@ -581,6 +643,4 @@ docker compose exec matching python -c "from Test_Embedding import run_global_em
 Query 메타(`QueryGlobal_*_meta.json`, `QueryPatchToken_*_meta.json`)도 동일한 스키마를 따르며 항상 `config.query`와 `files.csv`를 채운다. DenseFT PNG를 생성한 뒤에는 `.npy`와 같은 위치에 두고, 추적이 필요하면 `files.dense_vis`를 업데이트.
 
 > **참고**: 매칭/시각화 파트는 흐름이 안정화된 이후 다시 문서화될 예정이며, 현재 README는 임베딩 단계만 다룬다.
-
-
 

@@ -72,6 +72,15 @@ def generate_dense_feature(
 
     Path(dense_dir).mkdir(parents=True, exist_ok=True)
 
+
+    print(
+        "\n",
+        "================= Debug: Extracting Dense Feature (Datasets) =================\n",
+        f"\t[info] INPUT: \033[33m{grid_path}\033[0m\n",
+        f"\t[info] OUTPUT: \033[33m{dense_dir}\033[0m\n",
+        "================= Debug: Extracting Dense Feature (Datasets) =================\n",
+    )
+
     grid = torch.from_numpy(np.load(grid_path))  # (H, W, C)
     flat = grid.reshape(-1, grid.shape[-1])  # (H*W, C)
 
