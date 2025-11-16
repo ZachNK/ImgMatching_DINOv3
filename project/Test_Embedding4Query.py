@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,30 +21,39 @@ import torch
 
 from imatch.extracting import global_embedding, patch_embedding, patch2grid
 from imatch.preprocess import build_transform
-from imatch.loading import weights_path, load_image
+from imatch.loading import (
+    weights_path,
+    load_image,
+    QUERY_ROOT,
+    QUERY_PREFIX,
+    QUERY_DATASET_PREFIX,
+    DATASET_KEY as DEFAULT_DATASET_KEY,
+)
 from imatch.postprocess import process_patch_tokens
 from imatch.pretrained import pretrained_model
 from imatch.utils import progress_bar, token_preview
 
 
-QUERY_DIRS: Sequence[Path] = (
-    Path("/exports/Q250912150549_400"),
-    Path("/exports/Q250912154506_300"),
-    Path("/exports/Q250912161658_200"),
-)
 
-"""
-    Path("/exports/Q250912150549_400"),
-    Path("/exports/Q250912154506_300"),
-    Path("/exports/Q250912161658_200"),
-"""
+ACTIVE_DATASET_KEY = os.getenv("DATASET_KEY", DEFAULT_DATASET_KEY)
+
+
+def _default_query_dirs() -> Sequence[Path]:
+    base_dir = QUERY_ROOT / f"{QUERY_DATASET_PREFIX}{ACTIVE_DATASET_KEY}"
+    pattern = f"{QUERY_PREFIX}*"
+    if not base_dir.exists():
+        return ()
+    return tuple(sorted(p for p in base_dir.glob(pattern) if p.is_dir()))
+
+
+QUERY_DIRS: Sequence[Path] = _default_query_dirs()
 
 VAR_WEIGHT_KEYS: Sequence[str] = ("vitb16", "vits16+")
 VAR_TARGET_RES = 1024
 VARIANT = "raw"
 VARIANT_PARAMS: Dict[str, object] = {}
 
-QUERY_EMBED_ROOT = Path("/exports/dinov3_query_embeds")
+QUERY_EMBED_ROOT = Path(os.getenv("QUERY_EMBED_ROOT", "/exports/dinov3_query_embeds"))
 REPO_DIR = Path("/workspace/dinov3")
 
 SUPPORTED_SUFFIXES = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")

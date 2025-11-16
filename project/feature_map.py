@@ -17,13 +17,11 @@ from imatch.extracting import (
     patch2grid,
 )
 from imatch.loading import (
-    DATASET_ROOT, 
-    EXPORT_ROOT, 
-    img_path, 
-    weights_path, 
-    file_prefix, 
-    load_image
-
+    EXPORT_ROOT,
+    img_path,
+    weights_path,
+    file_prefix,
+    load_image,
 )
 
 
@@ -43,11 +41,11 @@ varTargetRes = 1024 # 최대 목표 해상도
 
 HUB_ENTRY = weights_path(varWeight)[0]
 CKPT_PATH = weights_path(varWeight)[1]
-IMG_DIR_NAME = img_path(varAltitude, varIndex)
+IMG_SPEC = img_path(varAltitude, varIndex)
 
 REPO_DIR = Path("/workspace/dinov3")
-IMAGE_PATH = DATASET_ROOT / f"{IMG_DIR_NAME[0]}/{IMG_DIR_NAME[1]}.jpg"
-FILE_NAME = f"FTM_{HUB_ENTRY}_{file_prefix(varAltitude, varIndex)}"
+IMAGE_PATH = IMG_SPEC.path
+FILE_NAME = f"FTM_{HUB_ENTRY}_{file_prefix(IMG_SPEC.label, varIndex)}"
 
 def get_patch_size(model: torch.nn.Module) -> int:
     """

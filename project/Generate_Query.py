@@ -7,15 +7,26 @@ can import and reuse the same logic.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from imatch.querycreating import generate_queries_for_directory
-from imatch.utils import progress_bar
+from imatch.querycreating import generate_queries_for_directory, iter_source_images
+from imatch.utils import create_progress
+from imatch.loading import (
+    IMG_ROOT,
+    QUERY_ROOT,
+    QUERY_PREFIX,
+    QUERY_DATASET_PREFIX,
+    DATASET_KEY as DEFAULT_DATASET_KEY,
+)
 
 ANGLES: Sequence[float] = (45.0, 90.0, 135.0, 180.0)
 CROP_RATIO: float = 0.5
+DATASET_KEY = os.getenv("DATASET_KEY", DEFAULT_DATASET_KEY)
+SOURCE_ROOT = IMG_ROOT / DATASET_KEY
+QUERY_BASE = QUERY_ROOT / f"{QUERY_DATASET_PREFIX}{DATASET_KEY}"
 
 
 @dataclass(frozen=True)
@@ -24,54 +35,76 @@ class QueryTask:
     destination: Path
 
 
-TASKS: Iterable[QueryTask] = (
-    QueryTask(
-        source=Path("/opt/datasets/250912150549_400"),
-        destination=Path("/exports/Q250912150549_400"),
-    ),
-    QueryTask(
-        source=Path("/opt/datasets/250912154506_300"),
-        destination=Path("/exports/Q250912154506_300"),
-    ),
-    QueryTask(
-        source=Path("/opt/datasets/250912161658_200"),
-        destination=Path("/exports/Q250912161658_200"),
-    ),
+FOLDERS: Sequence[str] = (
+    "250912150549_400",
+    "250912154506_300",
+    "250912163254_150",
+    "250912161658_200",
+    "250915084516_100",
 )
+
+TASKS: Iterable[QueryTask] = tuple(
+    QueryTask(
+        source=SOURCE_ROOT / folder,
+        destination=QUERY_BASE / f"{QUERY_PREFIX}{folder}",
+    )
+    for folder in FOLDERS
+)
+
+
+def _count_source_images(path: Path) -> int:
+    expanded = path.expanduser()
+    if not expanded.exists():
+        return 0
+    return sum(1 for _ in iter_source_images(expanded))
+
+
+def _estimate_total_outputs(tasks: Iterable[QueryTask]) -> int:
+    image_count = sum(_count_source_images(task.source) for task in tasks)
+    return image_count * len(ANGLES)
 
 
 def main() -> None:
     total_outputs = 0
-    for task in TASKS:
-        src = task.source.expanduser()
-        dst = task.destination.expanduser()
+    planned_total = _estimate_total_outputs(TASKS)
+    dynamic_total = planned_total
+    completed = 0
 
-        if not src.exists():
-            print(f"\033[31m[WARN] Source directory missing, skipping: {src}\033[0m")
-            continue
+    with create_progress() as progress:
+        progress_task = progress.add_task(
+            "[cyan]Query generation[/cyan]", total=dynamic_total or None
+        )
 
-        print(f"\033[36m[INFO] Generating queries for {src} -> {dst}\033[0m")
-        results = progress_bar(
-            generate_queries_for_directory, 
-            source_dir=src,
-            destination_dir=dst,
-            angles=ANGLES,
-            crop_ratio=CROP_RATIO,
-            overwrite=True,
-            resize_to_original=False,
-                               )
-        # results = generate_queries_for_directory(
-        #     source_dir=src,
-        #     destination_dir=dst,
-        #     angles=ANGLES,
-        #     crop_ratio=CROP_RATIO,
-        #     overwrite=True,
-        #     resize_to_original=False,
-        # )
-        total_outputs += len(results)
-        print(f"\t\033[36mGenerated {len(results)} query images.\033[0m")
+        def _advance_progress(_: object) -> None:
+            nonlocal completed, dynamic_total
+            completed += 1
+            if dynamic_total and completed > dynamic_total:
+                dynamic_total = completed
+                progress.update(progress_task, total=dynamic_total)
+            progress.advance(progress_task)
 
-    print(f"\033[32m[DONE] Total query images generated: {total_outputs}\033[0m")
+        for task in TASKS:
+            src = task.source.expanduser()
+            dst = task.destination.expanduser()
+
+            if not src.exists():
+                print(f"\033[31m\t[WARN] Source directory missing, skipping: {src}\033[0m")
+                continue
+
+            print(f"\033[36m[INFO] Generating queries for {src} -> {dst}\033[0m")
+            results = generate_queries_for_directory(
+                source_dir=src,
+                destination_dir=dst,
+                angles=ANGLES,
+                crop_ratio=CROP_RATIO,
+                overwrite=True,
+                resize_to_original=False,
+                progress_callback=_advance_progress,
+            )
+            total_outputs += len(results)
+            print(f"\t\033[36m\tGenerated {len(results)} query images.\033[0m")
+
+    print(f"\033[32m\t[DONE] Total query images generated: {total_outputs}\033[0m")
 
 
 if __name__ == "__main__":

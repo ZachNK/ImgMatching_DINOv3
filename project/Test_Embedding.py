@@ -15,12 +15,13 @@ from imatch.extracting import (
     patch2grid
 )
 from imatch.loading import (
-    DATASET_ROOT,
     EMBED_ROOT,
     weights_path,
     file_prefix,
     img_path,
-    load_image
+    load_image,
+    sanitize_group_token,
+    normalize_group_value,
 )
 from imatch.utils import (
     progress_bar,
@@ -83,9 +84,10 @@ def _normalize_output_plan(
 
 
 def _build_context(
-    altitude: int,
+    altitude: int | str,
     index: int,
     weight: str,
+    dataset_key: str | None,
     target_res: int,
     variant: str,
     embedding_cfg: Optional[str],
@@ -93,22 +95,23 @@ def _build_context(
 ) -> Dict[str, object]:
     """Assemble frequently reused values for a single inference run."""
     hub_entry, key, dt_type = weights_path(weight) # e.g. "dinov3_vit7b16", "/opt/weights/dinov3_vit7b16_pretrain_sat493m-a6675841.pth", "SAT"
-    img_dir_a, img_dir_b = img_path(altitude, index) # e.g. "250912161658_200", "250912161658_200_0150"
-    prefix = file_prefix(altitude, index) # e.g. "200_0150"
+    image_spec = img_path(altitude, index, dataset_key=dataset_key)
+    prefix = file_prefix(image_spec.label, index) # e.g. "200_0150"
 
     # Derive embedding configuration when not explicitly provided.
     default_embedding_cfg = f"res{target_res}_ImageNet"
     resolved_embedding_cfg = embedding_cfg or default_embedding_cfg
 
     # Token naming follows: token_type → embedding_cfg → variant → weight_id → dataset_type → altitude → index
-    altitude_str = f"{int(altitude)}"
+    label_display = normalize_group_value(altitude)
+    label_token = sanitize_group_token(altitude)
     index_str = f"{int(index):04d}"
-    global_base = f"GlobalToken_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dt_type}_{altitude_str}_{index_str}"
-    patch_base = f"PatchToken_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dt_type}_{altitude_str}_{index_str}"
-    patch_grid_base = f"PatchGrid_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dt_type}_{altitude_str}_{index_str}"
+    global_base = f"GlobalToken_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
+    patch_base = f"PatchToken_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
+    patch_grid_base = f"PatchGrid_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
 
     export_root = EMBED_ROOT / weight
-    altitude_dir = export_root / altitude_str
+    altitude_dir = export_root / label_token
     global_dir = altitude_dir / "GlobalToken"
     patch_dir = altitude_dir / "PatchToken"
     grid_dir = altitude_dir / "PatchGrid"
@@ -117,7 +120,10 @@ def _build_context(
         "hub_entry": hub_entry, # e.g. "dinov3_vit7b16"
         "key_path": key, # e.g. "/opt/weights/dinov3_vit7b16_pretrain_sat493m-a6675841.pth"
         "dataset_type": dt_type,
-        "image_path": DATASET_ROOT / f"{img_dir_a}/{img_dir_b}.jpg", # e.g. "/opt/datasets/250912161658_200/250912161658_200_0150.jpg"
+        "image_path": image_spec.path, # resolved absolute path
+        "dataset_key": image_spec.dataset_key,
+        "label_display": label_display,
+        "label_token": label_token,
         "file_name": global_base,
         "patch_name": patch_base,
         "grid_name": patch_grid_base,
@@ -129,7 +135,6 @@ def _build_context(
         "embedding_cfg": resolved_embedding_cfg,
         "variant": variant,
         "variant_params": dict(variant_params or {}),
-        "altitude_str": altitude_str,
         "index_str": index_str,
         "prefix": prefix,
     }
@@ -209,7 +214,7 @@ def _resolve_patch_size(model: torch.nn.Module) -> tuple[int, int]:
 
 
 def run_global_embedding(
-    altitude: int,
+    altitude: int | str,
     index: int,
     weight: str,
     target_res: int = 1024,
@@ -217,9 +222,10 @@ def run_global_embedding(
     embedding_cfg: Optional[str] = None,
     variant_params: Optional[Dict[str, object]] = None,
     output_plan: Optional[Dict[str, Dict[str, bool]]] = None,
+    dataset_key: Optional[str] = None,
 ) -> None:
     """Execute the full embedding pipeline for the given parameters."""
-    ctx = _build_context(altitude, index, weight, target_res, variant, embedding_cfg, variant_params)
+    ctx = _build_context(altitude, index, weight, dataset_key, target_res, variant, embedding_cfg, variant_params)
     hub_entry = ctx["hub_entry"]
     weight_path = ctx["key_path"]
     dataset_type = ctx["dataset_type"]
@@ -233,7 +239,7 @@ def run_global_embedding(
     resolved_embedding_cfg = ctx["embedding_cfg"]
     resolved_variant = ctx["variant"]
     resolved_variant_params = dict(ctx["variant_params"])
-    altitude_str = ctx["altitude_str"]
+    label_display = ctx["label_display"]
     index_str = ctx["index_str"]
     prefix = ctx["prefix"]
 
@@ -271,7 +277,7 @@ def run_global_embedding(
         "OUTPUT: \n",
         f"\t[config] embedding_cfg: \033[33m{resolved_embedding_cfg}\033[0m\n",
         f"\t[config] variant: \033[33m{resolved_variant}\033[0m\n",
-        f"\t[config] altitude/index: \033[33m{altitude_str}/{index_str}\033[0m (prefix=\033[33m{prefix}\033[0m)\n",
+        f"\t[config] group/index: \033[33m{label_display}/{index_str}\033[0m (prefix=\033[33m{prefix}\033[0m)\n",
         f"\t[outputs] Test Global embedding DINOv3 numpy array -> \033[34m{npy_path}\033[0m\n",
         f"\t[outputs] Test Patch token numpy array             -> \033[34m{patch_path}\033[0m\n",
         f"\t[outputs] Test Patch grid numpy array              -> \033[34m{grid_path}\033[0m\n",

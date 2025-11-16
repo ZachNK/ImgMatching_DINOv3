@@ -25,14 +25,17 @@ from Test_Embedding4Query import (
     _parse_query_filename,
 )
 from Generate_DenseFT4Query import generate_query_dense_feature
-from imatch.loading import weights_path
+from imatch.loading import weights_path, set_dataset_key, normalize_group_value, sanitize_group_token
 from imatch.pretrained import pretrained_model
-from imatch.utils import progress_bar
+from imatch.utils import progress_bar, create_progress
 
 TOKEN_KINDS = ("global", "patch", "grid")
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_KEY_PATH = BASE_DIR / "json/data_key.json"
+QUERY_ROOT_ENV = Path(os.getenv("QUERY_ROOT", "/opt/queries"))
+QUERY_PREFIX_ENV = os.getenv("QUERY_PREFIX", "Q")
+QUERY_DATASET_PREFIX_ENV = os.getenv("QUERY_DATASET_PREFIX", "Q")
 
 
 def parse_args() -> argparse.Namespace:
@@ -60,18 +63,17 @@ def _first_key(mapping: Dict[str, Any]) -> str:
     return next(iter(mapping)) if mapping else ""
 
 
-def _build_altitude_map(captures: Dict[str, Any]) -> Dict[int, List[str]]:
-    mapping: Dict[int, List[str]] = defaultdict(list)
-    for capture_id, altitude in captures.items():
-        mapping[int(altitude)].append(str(capture_id))
+def _build_altitude_map(images: Dict[str, Any]) -> Dict[str, List[str]]:
+    mapping: Dict[str, List[str]] = defaultdict(list)
+    for capture_id, altitude in images.items():
+        mapping[normalize_group_value(altitude)].append(str(capture_id))
     return mapping
 
 
-def _normalize_altitudes(field: Any) -> List[int]:
+def _normalize_altitudes(field: Any) -> List[Any]:
     if field is None:
         raise ValueError("\033[91m[Error] Image group must define 'altitudes'.\033[0m")
-    altitudes = field if isinstance(field, list) else [field]
-    return [int(alt) for alt in altitudes]
+    return list(field) if isinstance(field, list) else [field]
 
 
 def _normalize_indices(field: Any, expected: int) -> List[List[int]]:
@@ -98,56 +100,62 @@ def _normalize_rotations(field: Any, expected: int) -> List[List[int]]:
     return [shared for _ in range(expected)]
 
 
-def _resolve_capture_id(altitude: int, altitude_map: Dict[int, List[str]], dataset_key: str) -> str:
-    captures = altitude_map.get(int(altitude), [])
+def _resolve_capture_id(altitude: Any, altitude_map: Dict[str, List[str]], dataset_key: str) -> str:
+    label = normalize_group_value(altitude)
+    captures = altitude_map.get(label, [])
     if not captures:
-        raise ValueError(f"\033[91m[Error] Altitude {altitude} is not registered under dataset '{dataset_key}'.\033[0m")
+        raise ValueError(f"\033[91m[Error] Altitude/label {altitude} is not registered under dataset '{dataset_key}'.\033[0m")
     if len(captures) > 1:
         joined = ", ".join(sorted(captures))
-        raise ValueError(f"\033[91m[Error] Altitude {altitude} is ambiguous ({joined}).\033[0m")
+        raise ValueError(f"\033[91m[Error] Altitude/label {altitude} is ambiguous ({joined}).\033[0m")
     return captures[0]
 
 
-def _resolve_dataset_context(manifest: Dict[str, Any]) -> tuple[str, Dict[int, List[str]], Path, str]:
+def _resolve_dataset_context(manifest: Dict[str, Any]) -> tuple[str, Dict[str, List[str]], Path, str, str]:
     dataset_key = manifest.get("dataset_key") or os.getenv("DATASET_KEY") or _first_key(DATASETS)
     if not dataset_key or dataset_key not in DATASETS:
         raise ValueError(
-            f"\033[91m[Error] Dataset key '{dataset_key or 'undefined'}' is not registered in data_key.json.\033[0m"
+            f"[91m[Error] Dataset key '{dataset_key or 'undefined'}' is not registered in data_key.json.[0m"
         )
 
     dataset_cfg = DATASETS[dataset_key]
-    captures = dataset_cfg.get("captures")
-    if not isinstance(captures, dict) or not captures:
-        raise ValueError(f"\033[91m[Error] Dataset '{dataset_key}' must define a 'captures' mapping.\033[0m")
+    images = dataset_cfg.get("images") or dataset_cfg.get("captures")
+    if not isinstance(images, dict) or not images:
+        raise ValueError(
+            f"[91m[Error] Dataset '{dataset_key}' must define an 'images' mapping.[0m"
+        )
 
-    altitude_map = _build_altitude_map(captures)
-    query_cfg = dataset_cfg.get("query", {})
-    query_root = Path(query_cfg.get("root", "/exports"))
-    query_prefix = query_cfg.get("prefix", "Q")
-    return dataset_key, altitude_map, query_root, query_prefix
-
-
+    altitude_map = _build_altitude_map(images)
+    query_root = QUERY_ROOT_ENV
+    query_prefix = QUERY_PREFIX_ENV
+    dataset_prefix = QUERY_DATASET_PREFIX_ENV
+    return dataset_key, altitude_map, query_root, query_prefix, dataset_prefix
 def expand_query_entries(
     group: Dict[str, Any],
-    altitude_map: Dict[int, List[str]],
+    altitude_map: Dict[str, List[str]],
     dataset_key: str,
     query_root: Path,
     query_prefix: str,
+    dataset_prefix: str,
 ) -> List[Dict[str, Any]]:
     altitudes = _normalize_altitudes(group.get("altitudes"))
     indices_per_alt = _normalize_indices(group.get("indices"), len(altitudes))
     rotations_per_alt = _normalize_rotations(group.get("rotation"), len(altitudes))
 
+    dataset_dir = query_root / f"{dataset_prefix}{dataset_key}"
     expanded: List[Dict[str, Any]] = []
     for altitude, idx_list, rot_list in zip(altitudes, indices_per_alt, rotations_per_alt):
         capture_id = _resolve_capture_id(altitude, altitude_map, dataset_key)
-        name = f"{capture_id}_{int(altitude)}"
-        query_dir = query_root / f"{query_prefix}{name}"
+        label_token = sanitize_group_token(altitude)
+        label_display = normalize_group_value(altitude)
+        name = f"{capture_id}_{label_token}"
+        query_dir = dataset_dir / f"{query_prefix}{name}"
         expanded.append(
             {
                 "name": name,
                 "capture_id": capture_id,
-                "altitude": int(altitude),
+                "altitude": label_display,
+                "label_token": label_token,
                 "query_dir": query_dir,
                 "indices": idx_list,
                 "rotations": rot_list,
@@ -375,7 +383,7 @@ def _load_weighted_model(weight_key: str, device: torch.device) -> tuple[torch.n
 def _resolve_query_matches(
     query_dir: Path,
     capture_id: str,
-    altitude: int,
+    label_token: str,
     index_val: int,
     rotation: int,
 ) -> List[Path]:
@@ -384,7 +392,7 @@ def _resolve_query_matches(
         print(f"\033[91m[WARN] Query directory missing, skipping: {query_dir}\033[0m")
         return []
 
-    stem = f"{capture_id}_{int(altitude)}_{int(index_val):04d}_rot{int(rotation):03d}"
+    stem = f"{capture_id}_{label_token}_{int(index_val):04d}_rot{int(rotation):03d}"
     matches: List[Path] = []
     for suffix in SUPPORTED_SUFFIXES:
         pattern = f"{stem}_*{suffix}"
@@ -399,124 +407,143 @@ def _resolve_query_matches(
 
 def execute_manifest(manifest_path: Path) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    dataset_key, altitude_map, query_root, query_prefix = _resolve_dataset_context(manifest)
+    dataset_key, altitude_map, query_root, query_prefix, dataset_prefix = _resolve_dataset_context(manifest)
+    set_dataset_key(dataset_key)
     query_embed_root = Path(manifest.get("query_embed_root") or DEFAULT_QUERY_EMBED_ROOT)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     failures: List[Dict[str, Any]] = []
     job_counter = 0
     processed = 0
+    planned_total = 0
+    with create_progress() as query_progress:
+        progress_task = query_progress.add_task("[cyan]Query 진행률[/cyan]", total=0)
 
-    for model_entry in manifest.get("models", []):
-        weight_keys = _expand_weight_keys(model_entry.get("weight_key") or model_entry.get("weight_id"))
-        token_jobs = model_entry.get("token_jobs", [])
-        image_groups = model_entry.get("image_groups", [])
+        for model_entry in manifest.get("models", []):
+            weight_keys = _expand_weight_keys(model_entry.get("weight_key") or model_entry.get("weight_id"))
+            token_jobs = model_entry.get("token_jobs", [])
+            image_groups = model_entry.get("image_groups", [])
 
-        if not token_jobs or not image_groups:
-            print("\033[93m[WARN] Skipping model entry without token_jobs/image_groups.\033[0m")
-            continue
+            if not token_jobs or not image_groups:
+                print("\033[93m[WARN] Skipping model entry without token_jobs/image_groups.\033[0m")
+                continue
 
-        test_plan = _collect_test_embedding_plan(token_jobs)
-        denseft_active = _should_generate_denseft(token_jobs)
-        if test_plan is None and denseft_active:
-            test_plan = _build_denseft_bootstrap_plan(token_jobs)
-        if test_plan is None:
-            print("\033[93m[WARN] Skipping model entry with no runnable test_embedding plan.\033[0m")
-            continue
+            test_plan = _collect_test_embedding_plan(token_jobs)
+            denseft_active = _should_generate_denseft(token_jobs)
+            if test_plan is None and denseft_active:
+                test_plan = _build_denseft_bootstrap_plan(token_jobs)
+            if test_plan is None:
+                print("\033[93m[WARN] Skipping model entry with no runnable test_embedding plan.\033[0m")
+                continue
 
-        if denseft_active and not test_plan["outputs"]["grid"]["npy"]:
-            print(
-                "\033[93m[WARN] generate_denseft requested but PatchGrid npy output disabled; "
-                "DenseFT jobs will be skipped.\033[0m"
-            )
-            denseft_active = False
-
-        expanded_groups: List[Dict[str, Any]] = []
-        for group in image_groups:
-            expanded_groups.extend(expand_query_entries(group, altitude_map, dataset_key, query_root, query_prefix))
-
-        outputs_desc = ", ".join(
-            f"{kind}=({int(test_plan['outputs'][kind]['npy'])}/{int(test_plan['outputs'][kind]['json'])})"
-            for kind in TOKEN_KINDS
-        )
-
-        for weight_key in weight_keys:
-            model, hub_entry, dataset_type = _load_weighted_model(weight_key, device)
-            job_counter += 1
-            print(
-                f"[JOB {job_counter}] dataset={dataset_key} weight={weight_key} variant={test_plan['variant']} "
-                f"target_res={test_plan['target_res']} embedding_cfg={test_plan['embedding_cfg']} "
-                f"outputs[{outputs_desc}] denseft={int(denseft_active)}"
-            )
-
-            for combo in expanded_groups:
+            if denseft_active and not test_plan["outputs"]["grid"]["npy"]:
                 print(
-                    f"  [Group] {combo['name']} alt={combo['altitude']} "
-                    f"indices={len(combo['indices'])} rotations={combo['rotations']}"
+                    "\033[93m[WARN] generate_denseft requested but PatchGrid npy output disabled; "
+                    "DenseFT jobs will be skipped.\033[0m"
                 )
-                for index_val in combo["indices"]:
-                    for rotation in combo["rotations"]:
-                        matches = _resolve_query_matches(
-                            combo["query_dir"],
-                            combo["capture_id"],
-                            combo["altitude"],
-                            index_val,
-                            rotation,
-                        )
-                        if not matches:
-                            print(
-                                f"    [WARN] Missing files for index={index_val} rotation={rotation} "
-                                f"in {combo['query_dir']}"
-                            )
-                            continue
+                denseft_active = False
 
-                        for query_path in matches:
-                            try:
-                                info = _parse_query_filename(query_path)
-                            except ValueError as err:
-                                print(f"    [WARN] Skipping unexpected file format: {query_path} -> {err}")
+            expanded_groups: List[Dict[str, Any]] = []
+            for group in image_groups:
+                expanded_groups.extend(
+                    expand_query_entries(
+                        group,
+                        altitude_map,
+                        dataset_key,
+                        query_root,
+                        query_prefix,
+                        dataset_prefix,
+                    )
+                )
+
+            outputs_desc = ", ".join(
+                f"{kind}=({int(test_plan['outputs'][kind]['npy'])}/{int(test_plan['outputs'][kind]['json'])})"
+                for kind in TOKEN_KINDS
+            )
+
+            for weight_key in weight_keys:
+                model, hub_entry, dataset_type = _load_weighted_model(weight_key, device)
+                job_counter += 1
+                print(
+                    f"[JOB {job_counter}] dataset={dataset_key} weight={weight_key} variant={test_plan['variant']} "
+                    f"target_res={test_plan['target_res']} embedding_cfg={test_plan['embedding_cfg']} "
+                    f"outputs[{outputs_desc}] denseft={int(denseft_active)}"
+                )
+
+                for combo in expanded_groups:
+                    print(
+                        f"  [Group] {combo['name']} alt={combo['altitude']} "
+                        f"indices={len(combo['indices'])} rotations={combo['rotations']}"
+                    )
+                    for index_val in combo["indices"]:
+                        for rotation in combo["rotations"]:
+                            matches = _resolve_query_matches(
+                                combo["query_dir"],
+                                combo["capture_id"],
+                                combo["label_token"],
+                                index_val,
+                                rotation,
+                            )
+                            if not matches:
+                                print(
+                                    f"    [WARN] Missing files for index={index_val} rotation={rotation} "
+                                    f"in {combo['query_dir']}"
+                                )
                                 continue
 
-                            print(
-                                f"    -> {query_path.name} "
-                                f"(alt={info.altitude}, idx={info.index}, rot={rotation})"
-                            )
-                            try:
-                                result = process_query_image(
-                                    model=model,
-                                    device=device,
-                                    hub_entry=hub_entry,
-                                    dataset_type=dataset_type,
-                                    weight_key=weight_key,
-                                    info=info,
-                                    target_res=int(test_plan["target_res"]),
-                                    embedding_cfg=test_plan["embedding_cfg"],
-                                    variant=test_plan["variant"],
-                                    variant_params=dict(test_plan["variant_params"]),
-                                    output_plan=test_plan["outputs"],
-                                    query_embed_root=query_embed_root,
-                                )
-                                processed += 1
-                                if denseft_active and result.grid_path is not None:
-                                    generate_query_dense_feature(result.grid_path)
-                                elif denseft_active:
-                                    print("      [WARN] DenseFT requested but PatchGrid npy missing; skipped.")
-                            except Exception:
-                                failure = traceback.format_exc()
-                                failures.append(
-                                    {
-                                        "weight": weight_key,
-                                        "file": query_path.as_posix(),
-                                        "rotation": rotation,
-                                        "index": index_val,
-                                        "traceback": failure,
-                                    }
-                                )
-                                print(f"      [WARN] Failed to process {query_path}")
-                                print(failure)
-            del model  # free GPU memory
-            if device.type == "cuda":
-                torch.cuda.empty_cache()
+                            planned_total += len(matches)
+                            query_progress.update(progress_task, total=planned_total)
+
+                            for query_path in matches:
+                                try:
+                                    try:
+                                        info = _parse_query_filename(query_path)
+                                    except ValueError as err:
+                                        print(f"    [WARN] Skipping unexpected file format: {query_path} -> {err}")
+                                        continue
+
+                                    print(
+                                        f"    -> {query_path.name} "
+                                        f"(alt={info.altitude}, idx={info.index}, rot={rotation})"
+                                    )
+                                    try:
+                                        result = process_query_image(
+                                            model=model,
+                                            device=device,
+                                            hub_entry=hub_entry,
+                                            dataset_type=dataset_type,
+                                            weight_key=weight_key,
+                                            info=info,
+                                            target_res=int(test_plan["target_res"]),
+                                            embedding_cfg=test_plan["embedding_cfg"],
+                                            variant=test_plan["variant"],
+                                            variant_params=dict(test_plan["variant_params"]),
+                                            output_plan=test_plan["outputs"],
+                                            query_embed_root=query_embed_root,
+                                        )
+                                        processed += 1
+                                        if denseft_active and result.grid_path is not None:
+                                            generate_query_dense_feature(result.grid_path)
+                                        elif denseft_active:
+                                            print("      [WARN] DenseFT requested but PatchGrid npy missing; skipped.")
+                                    except Exception:
+                                        failure = traceback.format_exc()
+                                        failures.append(
+                                            {
+                                                "weight": weight_key,
+                                                "file": query_path.as_posix(),
+                                                "rotation": rotation,
+                                                "index": index_val,
+                                                "traceback": failure,
+                                            }
+                                        )
+                                        print(f"      [WARN] Failed to process {query_path}")
+                                        print(failure)
+                                finally:
+                                    query_progress.advance(progress_task)
+                del model  # free GPU memory
+                if device.type == "cuda":
+                    torch.cuda.empty_cache()
 
     print(f"\n\033[32mProcessed {processed} query images across {job_counter} weight jobs.\033[0m")
     if failures:

@@ -4,6 +4,7 @@ Generate dense feature visualisations from query patch grids.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -14,7 +15,7 @@ from PIL import Image
 
 
 VAR_WEIGHT_KEY = "vitb16"
-QUERY_EMBED_ROOT = Path("/exports/dinov3_query_embeds")
+QUERY_EMBED_ROOT = Path(os.getenv("QUERY_EMBED_ROOT", "/exports/dinov3_query_embeds"))
 ALTITUDE_FILTER: Sequence[int] = ()
 
 GRID_PATTERN = "QueryPatchGrid_*.npy"

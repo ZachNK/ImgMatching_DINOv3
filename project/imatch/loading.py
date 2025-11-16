@@ -1,42 +1,29 @@
 # project/imatch/loading.py
-"""
-Utility helpers for naming pair-match output files.
-REPO_DIR: 저장소 디렉터리 경로
-IMG_ROOT: 이미지 루트 디렉터리 경로
-EMBED_ROOT: 임베드 출력 루트 디렉터리 경로
-MATCH_ROOT: 매칭 출력 루트 디렉터리 경로
-VIS_ROOT: 시각화 출력 루트 디렉터리 경로
-DINOV_BLOCK_NET: 네트워크 차단 설정
-JSON: 데이터 키 JSON 파일 경로
-IMAGE_KEY: 이미지 키
-MODEL_KEY: 모델 키
-DATASET_ROOT: 데이터셋 루트 디렉터리 경로
-EXPORT_ROOT: 내보내기 루트 디렉터리 경로
-img_path(alt: int, img: int) -> List[str]: 이미지 경로 생성
-ckpt_path(key: str) -> List[str]: 체크포인트 경로 생성
-file_prefix(imgAlt: str, imgIndex: str) -> str: 파일 접두사 생성    
-"""
-from operator import index
-import re
-import os
+"""Utility helpers for dataset-aware path handling and result exports."""
+from __future__ import annotations
+
 import json
+import os
+import re
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple, Dict, List, Iterable
+from typing import Any, Dict, Iterable, List, Tuple
 from collections import defaultdict
+
 from PIL import Image
 import torch
 from torchvision import transforms
 
-# Base directories (docker-compose.yml/.env inject absolute paths)
-REPO_DIR = Path(os.getenv("REPO_DIR"))
-IMG_ROOT = Path(os.getenv("IMG_ROOT"))
-# Output roots (Windows host paths are mounted to /exports inside the container)
+REPO_DIR = Path(os.getenv("REPO_DIR", "/workspace/dinov3"))
+IMG_ROOT = Path(os.getenv("IMG_ROOT", "/opt/datasets"))
 EMBED_ROOT = Path(os.getenv("EMBED_ROOT", "/exports/dinov3_embeds"))
 MATCH_ROOT = Path(os.getenv("MATCH_ROOT", "/exports/dinov3_match"))
 VIS_ROOT = Path(os.getenv("VIS_ROOT", "/exports/dinov3_vis"))
-# Network guard: torch.hub remote downloads are disabled unless explicitly opted out
+QUERY_ROOT = Path(os.getenv("QUERY_ROOT", "/opt/queries"))
+QUERY_PREFIX = os.getenv("QUERY_PREFIX", "Q")
+QUERY_DATASET_PREFIX = os.getenv("QUERY_DATASET_PREFIX", "Q")
 
-DATASET_ROOT = Path("/opt/datasets")
+DATASET_ROOT = IMG_ROOT
 EXPORT_ROOT = Path("/exports")
 WEIGHT_ROOT = Path("/opt/weights")
 JSON = Path("/workspace/project/json/data_key.json")
@@ -44,72 +31,214 @@ JSON = Path("/workspace/project/json/data_key.json")
 with JSON.open("r", encoding="utf-8") as s:
     registry = json.load(s)
 
-DATASETS: Dict[str, Dict] = registry.get("datasets", {})
-WEIGHT_SETS: Dict[str, Dict] = registry.get("weights", {})
+DATASETS: Dict[str, Dict[str, Any]] = registry.get("datasets", {})
+WEIGHT_SETS: Dict[str, Dict[str, Any]] = registry.get("weights", {})
 
-def _first_key(data: Dict[str, Dict]) -> str:
+
+def _first_key(data: Dict[str, Any]) -> str:
     return next(iter(data)) if data else ""
 
-DATASET_KEY = os.getenv("DATASET_KEY", _first_key(DATASETS))
-if not DATASET_KEY or DATASET_KEY not in DATASETS:
-    raise KeyError(f"[loading] Unknown dataset key: {DATASET_KEY or 'undefined'}")
 
-DATASET_CONFIG = DATASETS[DATASET_KEY]
-CAPTURE_MAP = DATASET_CONFIG.get("captures")
-if not isinstance(CAPTURE_MAP, dict) or not CAPTURE_MAP:
-    raise ValueError(f"[loading] Dataset '{DATASET_KEY}' is missing 'captures' mapping.")
+def _normalize_label(value: Any) -> str:
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not value.is_integer():
+            return str(value)
+        return str(int(value))
+    text = str(value).strip()
+    if not text:
+        raise ValueError("[loading] Label value cannot be empty.")
+    return text
 
-IMAGE_KEY: Dict[str, int] = {str(k): int(v) for k, v in CAPTURE_MAP.items()}
-ALTITUDE_TO_CAPTURES: Dict[int, List[str]] = defaultdict(list)
-for capture_id, altitude in IMAGE_KEY.items():
-    ALTITUDE_TO_CAPTURES[int(altitude)].append(capture_id)
 
-QUERY_CONFIG = DATASET_CONFIG.get("query", {})
-QUERY_PREFIX = QUERY_CONFIG.get("prefix", "Q")
-QUERY_ROOT = Path(QUERY_CONFIG.get("root", EXPORT_ROOT.as_posix()))
+def _sanitize_token(label: str) -> str:
+    token = re.sub(r"[^A-Za-z0-9._-]+", "_", label)
+    return token or "group"
+
+
+def _format_index(value: Any) -> str:
+    try:
+        numeric = int(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return f"{numeric:04d}"
+
+
+@dataclass(frozen=True)
+class DatasetImageEntry:
+    dataset_key: str
+    capture_id: str
+    label: str
+    label_token: str
+    folder: Path
+    filename_template: str
+
+    def folder_str(self) -> str:
+        parts = [p for p in self.folder.parts if p and p != "."]
+        return "/".join(parts)
+
+    def build_filename(self, index: int) -> str:
+        frame = _format_index(index)
+        return self.filename_template.format(
+            capture_id=self.capture_id,
+            label=self.label,
+            label_token=self.label_token,
+            dataset_key=self.dataset_key,
+            index=int(index),
+            idx=int(index),
+            frame=frame,
+        )
+
+
+@dataclass(frozen=True)
+class DatasetState:
+    key: str
+    entries_by_label: Dict[str, DatasetImageEntry]
+
+
+@dataclass(frozen=True)
+class ImageInstance:
+    entry: DatasetImageEntry
+    filename: str
+
+    @property
+    def dataset_key(self) -> str:
+        return self.entry.dataset_key
+
+    @property
+    def capture_id(self) -> str:
+        return self.entry.capture_id
+
+    @property
+    def label(self) -> str:
+        return self.entry.label
+
+    @property
+    def label_token(self) -> str:
+        return self.entry.label_token
+
+    @property
+    def folder(self) -> str:
+        return self.entry.folder_str()
+
+    @property
+    def stem(self) -> str:
+        return Path(self.filename).stem
+
+    @property
+    def path(self) -> Path:
+        return DATASET_ROOT / self.entry.folder / self.filename
+
+
+def _build_image_entry(
+    dataset_key: str,
+    dataset_cfg: Dict[str, Any],
+    capture_id: str,
+    raw_value: Any,
+) -> DatasetImageEntry:
+    base_folder_template = dataset_cfg.get("folder_template", "{capture_id}_{label}")
+    base_file_template = dataset_cfg.get("filename_template", "{capture_id}_{label}_{frame}.jpg")
+    root_prefix = dataset_cfg.get("root")
+    if root_prefix in (None, ""):
+        root_prefix = dataset_key
+
+    override: Dict[str, Any] = raw_value if isinstance(raw_value, dict) else {}
+    label_value = override.get("label")
+    if label_value is None:
+        label_value = override.get("altitude", raw_value)
+    label = _normalize_label(label_value)
+    label_token = _sanitize_token(label)
+
+    folder_override = override.get("folder")
+    folder_template = override.get("folder_template", base_folder_template)
+    template_ctx = {
+        "capture_id": capture_id,
+        "label": label,
+        "label_token": label_token,
+        "dataset_key": dataset_key,
+    }
+    folder_rel = folder_override or folder_template.format(**template_ctx)
+    folder_path = Path(root_prefix).joinpath(Path(folder_rel)) if root_prefix else Path(folder_rel)
+
+    filename_template = override.get("filename_template", base_file_template)
+
+    return DatasetImageEntry(
+        dataset_key=dataset_key,
+        capture_id=capture_id,
+        label=label,
+        label_token=label_token,
+        folder=folder_path,
+        filename_template=filename_template,
+    )
+
+
+def _load_dataset_state(dataset_key: str) -> DatasetState:
+    if dataset_key not in DATASETS:
+        raise KeyError(f"[loading] Unknown dataset key: {dataset_key}")
+    dataset_cfg = DATASETS[dataset_key]
+    images_cfg = dataset_cfg.get("images") or dataset_cfg.get("captures")
+    if not isinstance(images_cfg, dict) or not images_cfg:
+        raise ValueError(f"[loading] Dataset '{dataset_key}' must define 'images'.")
+
+    entries: Dict[str, DatasetImageEntry] = {}
+    for capture_id, raw_value in images_cfg.items():
+        entry = _build_image_entry(dataset_key, dataset_cfg, str(capture_id), raw_value)
+        if entry.label in entries:
+            raise ValueError(
+                f"[loading] Duplicate label '{entry.label}' detected in dataset '{dataset_key}'."
+            )
+        entries[entry.label] = entry
+    return DatasetState(key=dataset_key, entries_by_label=entries)
+
+
+# Initialize dataset cache/state
+_DATASET_CACHE: Dict[str, DatasetState] = {}
+_DEFAULT_DATASET_KEY = os.getenv("DATASET_KEY", _first_key(DATASETS))
+if not _DEFAULT_DATASET_KEY:
+    raise KeyError("[loading] No dataset entries available in data_key.json.")
+_ACTIVE_DATASET_STATE = _load_dataset_state(_DEFAULT_DATASET_KEY)
+DATASET_KEY = _ACTIVE_DATASET_STATE.key
+
+
+def set_dataset_key(dataset_key: str) -> DatasetState:
+    """Switch the active dataset context used by helper functions."""
+    global _ACTIVE_DATASET_STATE, DATASET_KEY
+    if dataset_key == _ACTIVE_DATASET_STATE.key:
+        return _ACTIVE_DATASET_STATE
+    state = _DATASET_CACHE.get(dataset_key)
+    if state is None:
+        state = _load_dataset_state(dataset_key)
+        _DATASET_CACHE[dataset_key] = state
+    _ACTIVE_DATASET_STATE = state
+    DATASET_KEY = state.key
+    return state
+
+
+def _ensure_dataset_state(dataset_key: str | None = None) -> DatasetState:
+    if dataset_key and dataset_key != _ACTIVE_DATASET_STATE.key:
+        return set_dataset_key(dataset_key)
+    return _ACTIVE_DATASET_STATE
+
 
 WEIGHTS_KEY = os.getenv("WEIGHTS_KEY", _first_key(WEIGHT_SETS))
 if not WEIGHTS_KEY or WEIGHTS_KEY not in WEIGHT_SETS:
     raise KeyError(f"[loading] Unknown weights key: {WEIGHTS_KEY or 'undefined'}")
 MODEL_KEY = WEIGHT_SETS[WEIGHTS_KEY]
 
-def _resolve_capture_id(altitude: int) -> str:
-    """
-    Resolve a capture id from the dataset registry using an altitude value.
-    """
-    matches = ALTITUDE_TO_CAPTURES.get(int(altitude), [])
-    if not matches:
-        raise SystemExit(f"[loading(img_path):warn0] No capture mapped to altitude={altitude} for dataset '{DATASET_KEY}'.")
-    if len(matches) > 1:
-        options = ", ".join(sorted(matches))
-        raise SystemExit(f"[loading(img_path):warn0] Ambiguous altitude={altitude}; candidates={options}. Specify DATASET_KEY to disambiguate.")
-    return matches[0]
 
+def img_path(alt: Any, img: int, dataset_key: str | None = None) -> ImageInstance:
+    """Resolve a dataset image to an on-disk path and metadata."""
+    state = _ensure_dataset_state(dataset_key)
+    label = _normalize_label(alt)
+    entry = state.entries_by_label.get(label)
+    if entry is None:
+        raise SystemExit(
+            f"[loading(img_path):warn0] Label '{label}' is not registered for dataset '{state.key}'."
+        )
+    filename = entry.build_filename(img)
+    return ImageInstance(entry=entry, filename=filename)
 
-def img_path(alt: int, img: int) -> List[str]:
-    """
-    data_key.json을 참조하여 이미지 데이터 경로명 생성
-    e.g. img_path(300, 1) -> ["250912154506_300", "250912154506_300_0001"]
-    - 입력:
-      alt: int — 이미지 고도
-      img: int — 이미지 인덱스
-    - 출력:
-      List[str] — [폴더 이름, 파일 이름] 형식의 이미지 경로 리스트
-    """
-    capture_id = _resolve_capture_id(alt)
-    folder = f"{capture_id}_{int(alt)}"
-    file_name = f"{folder}_{int(img):04d}"
-    return [folder, file_name]
 
 def weights_path(key: str) -> List[str]:
-    """
-    data_key.json을 참조하여 백본모델 경로명 생성
-    e.g. weights_path("vits16+") -> ["dinov3_vits16plus", "/opt/weights/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth"]
-    - 입력:
-      key: str — 백본모델 키
-    - 출력:
-      List[str] — [허브 엔트리 이름, 백본모델 파일 경로] 형식의 리스트
-    """
     key = key.strip()
     if not key:
         raise ValueError("[loading(weights_path)] Empty weight key provided.")
@@ -121,27 +250,26 @@ def weights_path(key: str) -> List[str]:
             return [hub_entry, ckpt.as_posix(), data_name]
     raise KeyError(f"[loading(weights_path)] Weight key '{key}' not found in registry '{WEIGHTS_KEY}'.")
 
-def file_prefix(imgAlt: str, imgIndex: str) -> str:
-    """
-    파일 접두사 생성
-    e.g. file_prefix("300", "1") -> "300_0001"
-    - 입력:
-      imgAlt: str — 이미지 고도
-      imgIndex: str — 이미지 인덱스
-    - 출력:
-      str — 접두사 문자열
-    """
-    return f"{imgAlt}_{'%04d'%imgIndex}"
+
+def file_prefix(imgAlt: Any, imgIndex: Any) -> str:
+    label = _sanitize_token(_normalize_label(imgAlt))
+    return f"{label}_{_format_index(imgIndex)}"
 
 
-"""
-이미지 파일 I/O 관련 유틸리티 함수들.
-"""
+def normalize_group_value(value: Any) -> str:
+    """Public wrapper so other modules can reuse label normalisation."""
+    return _normalize_label(value)
+
+
+def sanitize_group_token(value: Any) -> str:
+    """Return a filesystem-safe token for a dataset group value."""
+    return _sanitize_token(_normalize_label(value))
+
+
+"""Image file I/O and CLI helpers"""
+
 
 def parse_pair(s: str) -> Tuple[int, str]:
-    """
-    'ALT.FRAME' 형태 파싱: '400.0001' -> (400, '0001')
-    """
     alt_s, frm_s = s.split(".", 1)
     alt = int(re.sub(r"\D", "", alt_s))
     frame = re.sub(r"\D", "", frm_s).zfill(4)
@@ -149,28 +277,21 @@ def parse_pair(s: str) -> Tuple[int, str]:
         raise SystemExit("[loading(parse_pair):warn1] empty frame")
     return alt, frame
 
+
 def find_image(img_root: Path, alt: int, frame: str) -> Path:
-    """
-    디렉토리 트리에서 '*_{alt}_{frame}.{ext}' 패턴으로 이미지 검색.
-    """
-    for ext in ("jpg","jpeg","png","bmp","tif","tiff","webp"):
+    for ext in ("jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp"):
         hits = list(img_root.glob(f"**/*_{alt}_{frame}.{ext}"))
         if hits:
             return hits[0]
     raise SystemExit(f"[loading(find_image):warn2] No image for alt={alt}, frame={frame} under {img_root}")
 
-def load_image(path: Path) -> torch.Tensor:
-    """
-    PIL로 RGB 로딩 → ToTensor()
-    """
+
+def load_image(path: Path | str) -> torch.Tensor:
     im = Image.open(path).convert("RGB")
     return transforms.ToTensor()(im)
 
+
 def images_regex(root: Path, regex: str, exts: Iterable[str]) -> Dict[str, Path]:
-    """
-    정규식에 이름이 매칭되는 이미지 파일을 스캔.
-    key='ALT.FRAME' → Path 매핑 반환
-    """
     rx = re.compile(regex, re.IGNORECASE)
     exts = tuple(exts)
     out: Dict[str, Path] = {}
@@ -190,14 +311,8 @@ def images_regex(root: Path, regex: str, exts: Iterable[str]) -> Dict[str, Path]
         raise SystemExit(f"[loading:warn3] No images matched under {root}")
     return out
 
-def enumerate_pairs(keys: List[str], a: str=None, b: str=None) -> List[Tuple[str,str]]:
-    """
-    Pair enumeration helper.
-    - a, b 모두 None → 모든 ordered pair (N×(N-1))
-    - a가 ALT.FRAME → 해당 이미지 vs (b 타깃 또는 전체)
-    - a가 ALT → ALT 그룹 전체 vs (b 타깃 또는 전체)
-    - b에 대해서도 동일하게 ALT.FRAME / ALT 지원
-    """
+
+def enumerate_pairs(keys: List[str], a: str = None, b: str = None) -> List[Tuple[str, str]]:
     key_set = set(keys)
     keys_by_alt: Dict[int, List[str]] = defaultdict(list)
     for key in keys:
@@ -217,7 +332,6 @@ def enumerate_pairs(keys: List[str], a: str=None, b: str=None) -> List[Tuple[str
             if key not in key_set:
                 raise SystemExit(f"[loading:warn3] No image matched for {label}={value}")
             return [key]
-        # ALT only
         alt_digits = re.sub(r"\D", "", value)
         if not alt_digits:
             raise SystemExit(f"[loading:warn3] Invalid ALT value for {label}: {value}")
@@ -237,16 +351,8 @@ def enumerate_pairs(keys: List[str], a: str=None, b: str=None) -> List[Tuple[str
             pairs.append((key_a, key_b))
     return pairs
 
-def save_json(out_dir: Path, stub: str, payload: Dict) -> Path:
-    """
-    out_dir/stub.json 으로 저장하고 경로 반환
-    - 입력: 
-      out_dir: Path — 출력 디렉터리 경로
-      stub: str — 파일 이름 접두사
-      payload: Dict — JSON으로 저장할 데이터 딕셔너리
-    - 출력:
-      Path — 저장된 JSON 파일 경로
-    """
+
+def save_json(out_dir: Path, stub: str, payload: Dict[str, Any]) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{stub}.json"
     with open(out_path, "w", encoding="utf-8") as f:
@@ -255,7 +361,6 @@ def save_json(out_dir: Path, stub: str, payload: Dict) -> Path:
 
 
 def prepare_run_context(args, weight_groups: Dict[str, List[str]], all_weight_keys: List[str]):
-    """이미지 목록과 가중치 경로를 준비한다."""
     key2path = images_regex(IMG_ROOT, args.regex, args.exts)
     keys = sorted(key2path.keys(), key=lambda s: (int(s.split('.')[0]), s.split('.')[1]))
     pairs = enumerate_pairs(keys, args.pair_a, args.pair_b)
@@ -268,6 +373,7 @@ def prepare_run_context(args, weight_groups: Dict[str, List[str]], all_weight_ke
     )
     all_weight_key_set = set(all_weight_keys)
     resolved_weights = []
+    dataset_type = None
     for weight_name in selected_weight_keys:
         if weight_name not in all_weight_key_set:
             raise SystemExit(f"Unknown weight key: {weight_name}")
@@ -293,7 +399,6 @@ def save_match_result(
     time_ms: Dict[str, float],
     patch: Dict | None,
 ) -> Path:
-    """매칭 결과를 JSON으로 저장하고 경로 반환."""
     model_root = f"/opt/weights/{weight_path.name}"
     meta = dict(
         repo_dir=str(REPO_DIR),

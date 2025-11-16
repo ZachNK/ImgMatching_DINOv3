@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import Callable, Iterable, List, Sequence, Tuple
 
 from PIL import Image, ImageOps
 
@@ -109,12 +109,19 @@ def generate_queries_for_directory(
     suffixes: Sequence[str] | None = None,
     resize_to_original: bool = False,
     image_format: str = "JPEG",
+    progress_callback: Callable[[QuerySummary], None] | None = None,
 ) -> List[QuerySummary]:
     """
     Generate rotated + cropped query images for every file in `source_dir`.
+
+    Parameters
+    ----------
+    progress_callback:
+        Optional callable invoked every time a query image is written. Receives
+        the QuerySummary for that output.
     """
     if not angles:
-        raise ValueError("angles must contain at least one rotation value.")
+        raise ValueError("\033[31m\tangles must contain at least one rotation value.\033[0m")
 
     source_dir = source_dir.expanduser().resolve()
     destination_dir = destination_dir.expanduser().resolve()
@@ -142,16 +149,17 @@ def generate_queries_for_directory(
                     )
                     query_img.save(output_path, format=image_format, quality=95)
 
-                    results.append(
-                        QuerySummary(
-                            source=img_path,
-                            output=output_path,
-                            angle=angle,
-                            crop_ratio=crop_ratio,
-                            resized_to_original=resize_to_original,
-                        )
+                    summary = QuerySummary(
+                        source=img_path,
+                        output=output_path,
+                        angle=angle,
+                        crop_ratio=crop_ratio,
+                        resized_to_original=resize_to_original,
                     )
+                    results.append(summary)
+                    if progress_callback is not None:
+                        progress_callback(summary)
         except OSError as err:
-            print(f"[WARN] Failed to process {img_path}: {err}")
+            print(f"\033[31m\t[WARN] Failed to process {img_path}: {err}\033[0m")
 
     return results

@@ -13,7 +13,9 @@ from PIL import Image
 from imatch.loading import (
     EMBED_ROOT,
     weights_path,
-    file_prefix
+    file_prefix,
+    sanitize_group_token,
+    normalize_group_value,
 )
 
 varAltitude = 450
@@ -22,7 +24,7 @@ varWeight = "vit7b16"
 
 
 def _build_context(
-    altitude: int,
+    altitude: int | str,
     index: int,
     weight: str,
     variant: str,
@@ -30,14 +32,15 @@ def _build_context(
 ) -> dict[str, Path | str]:
     """Prepare the shared paths used throughout the dense feature pipeline."""
     hub_entry, _, dataset_type = weights_path(weight) # e.g. dinov3_vitl16
-    altitude_str = f"{int(altitude)}"
+    label_str = normalize_group_value(altitude)
+    label_token = sanitize_group_token(altitude)
     index_str = f"{int(index):04d}"
-    prefix = file_prefix(altitude, index) # e.g. 200_0150
+    prefix = file_prefix(label_str, index) # e.g. 200_0150
 
-    grid_name = f"PatchGrid_{embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{altitude_str}_{index_str}"
-    dense_name = f"DenseFT_{embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{altitude_str}_{index_str}"
+    grid_name = f"PatchGrid_{embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{label_token}_{index_str}"
+    dense_name = f"DenseFT_{embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{label_token}_{index_str}"
 
-    altitude_dir = EMBED_ROOT / weight / altitude_str
+    altitude_dir = EMBED_ROOT / weight / label_token
     grid_dir = altitude_dir / "PatchGrid"
     dense_dir = altitude_dir / "DenseFT"
 
@@ -51,7 +54,7 @@ def _build_context(
 
 
 def generate_dense_feature(
-    altitude: int,
+    altitude: int | str,
     index: int,
     weight: str,
     target_res: int = 1024,
@@ -67,7 +70,7 @@ def generate_dense_feature(
 
     if not grid_path.exists():
         raise FileNotFoundError(
-            f"\033[91mPatch grid not found for altitude={altitude}, index={index}, weight={weight}: {grid_path}\033[0m"
+            f"\033[91mPatch grid not found for group={altitude}, index={index}, weight={weight}: {grid_path}\033[0m"
         )
 
     Path(dense_dir).mkdir(parents=True, exist_ok=True)

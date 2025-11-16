@@ -4,10 +4,10 @@
   "weight_set": "dinov3_weights",
   "models": [
     {
-      "weight_key": ["vits16", "vits16+", "vit7b16", "cxBase", "cxLarge", "cxSmall", "cxTiny", "vit7b16sat", "vitl16sat"],
+      "weight_key": ["vit7b16"],
       "image_groups": [
         {
-          "altitudes": [100, 150, 200, 250, 300, 350, 400, 450],
+          "altitudes": [100],
           "indices": [
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
             11, 12, 13, 14, 15, 16, 17, 18, 19, 20,

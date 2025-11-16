@@ -5,7 +5,7 @@
   "query_embed_root": "/exports/dinov3_query_embeds",
   "models": [
     {
-      "weight_key": ["vith16+"],
+      "weight_key": ["vitl16"],
       "image_groups": [
         {
           "altitudes": [200, 300, 400],

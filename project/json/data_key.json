@@ -1,7 +1,10 @@
 {
     "datasets": {
         "shinsung_data": {
-            "captures": {
+            "root": "shinsung_data",
+            "folder_template": "{capture_id}_{label}",
+            "filename_template": "{capture_id}_{label}_{frame}.jpg",
+            "images": {
                 "250912143954": 450,
                 "250912150549": 400,
                 "250912152428": 350,
@@ -10,10 +13,21 @@
                 "250912161658": 200,
                 "250912163254": 150,
                 "250915084516": 100
-            },
-            "query": {
-                "root": "/exports",
-                "prefix": "Q"
+            }
+        },
+        "another_data1": {
+            "root": "another_data1",
+            "folder_template": "{capture_id}/{label}",
+            "filename_template": "{label}_{frame}.jpg",
+            "images": {
+                "depth1_01": "depth2_01",
+                "depth1_02": "depth2_02",
+                "depth1_03": "depth2_03",
+                "depth1_04": "depth2_04",
+                "depth1_05": "depth2_05",
+                "depth1_06": "depth2_06",
+                "depth1_07": "depth2_07",
+                "depth1_08": "depth2_08"
             }
         }
     },

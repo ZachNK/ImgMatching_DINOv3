@@ -16,6 +16,9 @@ services:
       IMG_ROOT: ${IMG_ROOT}
       EMBED_ROOT: ${EMBED_ROOT}
       MATCH_ROOT: ${MATCH_ROOT}
+      QUERY_ROOT: ${QUERY_ROOT}
+      QUERY_PREFIX: ${QUERY_PREFIX}
+      QUERY_DATASET_PREFIX: ${QUERY_DATASET_PREFIX}
       VIS_ROOT: ${VIS_ROOT}
       VIS_DRAW_POINTS: ${VIS_DRAW_POINTS}
       VIS_POINT_RADIUS: ${VIS_POINT_RADIUS}
@@ -29,6 +32,7 @@ services:
       - ${CODE_HOST}:/workspace/dinov3
       - ${WEIGHTS_HOST}:/opt/weights:ro
       - ${DATASET_HOST}:/opt/datasets:ro
+      - ${QUERY_HOST}:/opt/queries
       - ${EXPORT_HOST}:/exports
     command: bash -lc "sleep infinity"
     stdin_open: true
