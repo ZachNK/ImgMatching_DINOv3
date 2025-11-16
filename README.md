@@ -117,6 +117,7 @@ Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Architecture
 - 로컬 경로를 미리 생성한다.\
   작업할 디렉토리: `<Your>\<Project>\<Directory>` 로 가정\
   활용 데이터셋 디렉토리: `<Your>\<Datasets>\<Directory>`로 분리\
+  쿼리 데이터셋 디렉토리: `<Your>\<Queries>\<Directory>`로 분리\
   작업 결과 디렉토리: `<Your>\<Project_Exports>\<Directory>`로 분리\
 
   
@@ -125,10 +126,11 @@ Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Architecture
   mkdir <Your>\<Project>\<Directory>\dinov3_src       # DINOv3
   mkdir <Your>\<Project>\<Directory>\dinov3_weights   # DINOv3에서 제공한 백본 경로
   mkdir <Your>\<Datasets>\<Directory>\dinov_data      # 활용할 입력 데이터셋 경로
+  mkdir <Your>\<Queries>\<Directory>\dinov3_queries   # 생성될 쿼리 이미지 저장 경로
   mkdir <Your>\<Project_Exports>\<Directory>\dinov3_exports   # 본 프로젝트의 출력 저장 경로
   ```
 
-- 그리고 Docker Desktop에 Docker Desktop Settings → Resources → File Sharing 에서 프로젝트/데이터 폴더가 공유되어 있는지 확인
+- 그리고 Docker Desktop에 Docker Desktop Settings → Resources → File Sharing 에서 프로젝트/데이터/쿼리/결과 폴더가 공유되어 있는지 확인
 <p align="center">
   <img src="docs/figs/docker_desktop_filesharing.png" width="75%">
 </p>
@@ -149,11 +151,14 @@ Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Architecture
 
   | 변수 | 설명 | 예시 (Windows) |
   | --- | --- | --- |
-  | `PROJECT_HOST` | `project/` 폴더 실경로 | `D:\GoogleDrive\KNK_Lab\_Projects\dinov3_main\project` |
-  | `CODE_HOST` | dinov3 원본 리포지터리 | `D:\GoogleDrive\KNK_Lab\_Projects\dinov3_src` |
-  | `WEIGHTS_HOST` | `.pth` 가중치 루트 | `D:\GoogleDrive\KNK_Lab\_Projects\dinov3_weights` |
-| `DATASET_HOST` | 이미지 데이터셋 루트 | `D:\Datasets\dinov_data` |
-| `EXPORT_HOST` | JSON/PNG 결과 저장 루트 | `D:\Project_Exports\dinov3_exports` |
+  | `PROJECT_HOST` | `project/` 폴더 실경로 | `D:\ETRI\KNK_Lab\_Projects\dinov3_main\project` |
+  | `CODE_HOST` | dinov3 원본 리포지터리 | `D:\ETRI\KNK_Lab\_Projects\dinov3_src` |
+  | `WEIGHTS_HOST` | `.pth` 가중치 루트 | `D:\ETRI\KNK_Lab\_Projects\dinov3_weights` |
+  | `DATASET_HOST` | 이미지 데이터셋 루트 | `D:\Datasets` |
+  | `QUERY_HOST` | 쿼리 이미지 생성 루트 | `D:\Query` |
+  | `EXPORT_HOST` | JSON/PNG 결과 저장 루트 | `D:\dinov3_exports` |
+
+  컨테이너 기본 경로는 고정값을 사용한다. 예시) `QUERY_ROOT=/opt/queries`, `QUERY_PREFIX=Q`, `QUERY_DATASET_PREFIX=queries_`. 필요 시 `.env`에서 값을 조정해도 되지만, 반드시 Docker volume(`docker-compose.yml`)과 Host 경로 공유 설정이 일치해야 한다.
 
 
 ### 0-5) Docker Compose 빌드 단계
@@ -244,7 +249,10 @@ dinov3_main/
   > _예시 위치:_ `<Your>\<Project>\<Directory>\dinov3_weights`
 
 - **매칭 대상 이미지 데이터셋**  
-  > _예시 위치:_ `<Your>\<Datasets>\<Directory>\dinov_data`
+  > _예시 위치:_ `<Your>\<Datasets>\<Directory>\Datasets`
+
+- **쿼리 이미지 데이터셋**  
+  > _예시 위치:_ `<Your>\<Queries>\<Directory>\Query`
 
 - **결과 저장 디렉터리**  
   > _예시 위치:_ `<Your>\<Project_Exports>\<Directory>\dinov3_exports`
@@ -305,27 +313,60 @@ dinov3_main/
 
 ### 1-4) 데이터셋 준비
 
-- 데이터셋은 `dinov_data`의 디렉토리를 본 프로젝트를 수행하는 경로와 다른 곳에 저장한다. (저장하는 데이터셋, 임베딩 파일 및 쿼리 이미지 용량이 매우 크기 때문에, 적절히 메모리 환경이 충분한 곳에 골라 저장)
+- 데이터셋은 `dinov_data`의 디렉토리를 본 프로젝트를 수행하는 경로와 다른 곳에 저장한다. (저장하는 데이터셋, 임베딩 파일 용량이 매우 크기 때문에, 적절히 메모리 환경이 충분한 곳에 골라 저장)
 
 - 본 프로젝트의 저장 경로를 `<Your>\<Project>\<Directory>`라 한다면, 본 프로젝트에 활용할 데이터셋의 경로는 `<Your>\<Datasets>\<Directory>`에 저장함. 
 
-- `dinov_data` 경로에 활용할 데이터셋은 아래와 같이 일관된 경로로 수정해야 한다.\
+- `Datasets` 경로에 활용할 데이터셋은 아래와 같이 일관된 경로로 수정해야 한다.\
   `<ID>`는 세부 데이터셋 명이고, `<ALT>`는 항공 사진의 고도, `<FRAME>`은 해당 고도에서 촬영한 이미지 순번.
 
   ```bash
-  <Your>\<Datasets>\<Directory>\dinov_data
-    └─<Your>\<Datasets>\<Directory>\dinov_data\<ID>_<ALT>
-        └─<Your>\<Datasets>\<Directory>\dinov_data\<ID>_<ALT>\<ID>_<ALT>_<FRAME>.jpg
+  <Your>\<Datasets>\<Directory>\Datasets
+    └─<Your>\<Datasets>\<Directory>\Datasets\<Dataset_root>\<ID>_<ALT>
+        └─<Your>\<Datasets>\<Directory>\Datasets\<Dataset_root>\<ID>_<ALT>\<ID>_<ALT>_<FRAME>.jpg
   ```
 
 - 본 프로젝트의 데이터셋 경로 예시
   ```bash
-  D:\dinov_data
-    └─D:\dinov_data\250912143954_450
-        └─D:\dinov_data\250912143954_450\250912143954_450_0001.jpg
+  D:\Datasets
+    ├─D:\Datasets\shinsung_data\250912143954_450
+    │ ├─D:\Datasets\shinsung_data\250912143954_450\250912143954_450_0001.jpg
+    │ └─ ...
+    └─D:\Datasets\jamshil_data\251030172146_300_50_0_000
+      ├─D:\Datasets\jamshil_data\251030172146_300_50_0_000\251030172146_300_50_0_000_00001.jpg
+      └─ ...
   ```
 
-### 1-5) 디렉토리 최종
+### 1-5) 쿼리 데이터셋
+- 쿼리 데이터셋도 원본 데이터셋의 용량보다 배 이상으로 차지하므로, 적절히 여유 있는 디렉토리를 설정한다.
+
+- 원본 데이터셋 경로와 동일한 위계로 두는 것이 편할 수 있다. 데이터셋 경로가 `<Your>\<Datasets>\<Directory>`이라면, 쿼리 데이터셋 경로는 `<Your>\<Queries>\<Directory>`로 지정하는 것이 좋다.
+
+- `Query`경로에 원본 데이터의 쿼리들을 저장한다.
+  ```bash
+  <Your>\<Queries>\<Directory>\Query
+    └─<Your>\<Queries>\<Directory>\Query\queries_<Dataset_root>\Q<ID>_<ALT>
+        └─<Your>\<Queries>\<Directory>\Query\queries_<Dataset_root>\Q<ID>_<ALT>\<ID>_<ALT>_<FRAME>_rot<rotation angle>_crop<cropping ratio>.jpg
+  ```
+
+- 본 프로젝트의 쿼리 데이터셋 경로 예시
+  ```bash
+  D:\Query
+    ├─D:\Query\queries_shinsung_data
+    │ ├─D:\Query\queries_shinsung_data\Q250915084516_100
+    │ │ ├─D:\Query\queries_shinsung_data\Q250915084516_100\250915084516_100_0001_rot045_crop50.jpg
+    │ │ └─ ...
+    │ └─ ...
+    ├─D:\Query\queries_jamshil_data
+    │ ├─D:\Query\queries_jamshil_data\251030172146_300_50_0_000
+    │ │ ├─D:\Query\queries_jamshil_data\251030172146_300_50_0_000\251030172146_300_50_0 ... crop50.jpg
+    │ │ └─ ...
+    │ └─ ...
+    └─ ...
+
+  ```
+
+### 1-6) 디렉토리 최종
 
 - 본 프로젝트 `dinov3_main`에서 실행한 후 도출한 결과들을 저장할 디렉토리 `dinov3_exports`에 생성한다.\
   최종 경로 상태는 아래와 같다:
@@ -370,11 +411,15 @@ dinov3_main/
   │  │  └─ *.pth
   │  └─ … (필요한 가중치별 디렉터리)
 
-  <Your>\<Datasets>\<Directory>\
-  └─ dinov_data\                # 매칭 대상 이미지/데이터셋
+  <Your>\<Datasets>\<Directory>
+  └─ Datasets\                # 매칭 대상 이미지/데이터셋
     └─ … (프로젝트별 입력 데이터)
 
-  <Your>\<Project_Exports>\<Directory>\
+  <Your>\<Queries>\<Directory>
+  └─ Query\                # 매칭 대상 쿼리 이미지/데이터셋
+    └─ … (쿼리 데이터)
+
+  <Your>\<Project_Exports>\<Directory>
   └─ dinov3_exports\             # 결과(JSON/PNG/npy) 저장
     ├─ dinov3_embeds\
     ├─ pair_match\
@@ -404,7 +449,7 @@ docker compose exec matching nvidia-smi
 
 매칭이나 시각화 이전에 재사용 가능한 DINOv3 임베딩을 생성. \
 컨테이너 내부의 모든 저장 파일들은 `/exports/...`에 생성. \
-호스트는 `<Your>\<Project_Exports>\<Directory>\dinov3_exports`에 마운트.
+호스트는 `<Your>\<Project_Exports>\<Directory>\dinov3_exports`, `<Your>\<Queries>\<Directory>\dinov3_queries`에 각각 마운트된다.
 
 ### 3-1) 임베딩 파이프라인
 
@@ -455,7 +500,7 @@ sequenceDiagram
     participant Op as Operator
     participant GenQ as Generate_Query.py
     participant Src as /opt/datasets/*
-    participant QDirs as /exports/Q*
+    participant QDirs as /opt/queries/Q{dataset}/Q*
     participant Runner as run_manifestQuery.py
     participant Manifest as manifestQuery.json
     participant DataKey as data_key.json
@@ -472,12 +517,12 @@ sequenceDiagram
     GenQ->>Src: Read QueryTask.source captures
     Src-->>GenQ: Altitude/index frames
     GenQ->>QDirs: Save rotated+cropped queries (prefix Q*)
-    QDirs-->>Op: /exports/Q* ready
+    QDirs-->>Op: /opt/queries/Q{dataset}/Q* ready
 
     Op->>Runner: python project/run_manifestQuery.py --manifest ...
     Runner->>Manifest: Load models, token_jobs, alt/index/rotation plan
     Runner->>DataKey: Resolve dataset captures + query root/prefix
-    Note over Manifest,DataKey: dataset_key=shinsung_data, weight_set=dinov3_weights,<br/>Q root=/exports, prefix=Q, DenseFT flag
+    Note over Manifest,DataKey: dataset_key=shinsung_data, weight_set=dinov3_weights,<br/>Q root=/opt/queries/Q{dataset}, prefix=Q, DenseFT flag
     Runner->>Load: weights_path(weight_key)
     Load-->>Runner: hub_entry, weight_path, dataset_type
     Runner->>Pretrain: pretrained_model(REPO_DIR, hub_entry, weight_path, device)
@@ -565,7 +610,7 @@ Query PatchGrid 텐서에서 생성된 Dense feature PNG는 `<Your>\<Project_Exp
   `generate_denseft: true` → `Generate_DenseFT.py` 호출까지 이어지는 실행 스크립트.
 
 - `project/Test_Embedding4Query.py`:\
-  `/exports/Q...`(호스트의 경우: e.g. `<Your>\<Project_Exports>\<Directory>\dinov3_exports\Q250912161658_200` )를 순회하며 query 이미지별 `QueryGlobal`/`QueryPatch`/`QueryPatchGrid` 토큰 파일(`.npy`) 출력.
+  `/opt/queries/Q{dataset_key}/Q...`(호스트의 경우: e.g. `<Your>\<Queries>\<Directory>\dinov3_queries\Qshinsung_data\Q250912161658_200` )를 순회하며 query 이미지별 `QueryGlobal`/`QueryPatch`/`QueryPatchGrid` 토큰 파일(`.npy`) 출력.
 - `project/Generate_DenseFT.py`, `project/Generate_DenseFT4Query.py`: PatchGrid 텐서를 1024×1024 PCA 사영 PNG로 변환해 dataset/query 시각화를 만듦.
 - 보조 도구들(`Generate_Query.py`, `Test_Embedding4Query.py` 등)은 `imatch.loading` 경로 상수를 사용하므로 `.env`에 `DATASET_HOST`, `EXPORT_HOST` 등 유효한 변수를 반드시 지정.
 
