@@ -395,6 +395,16 @@ def process_query_image(
 
     timings["pipeline_total"] = (time.perf_counter() - pipeline_start) * 1000.0
     gpu_peak = _gather_gpu_stats(device)
+    if gpu_peak is not None:
+        print(
+            f"[GPU] [Query] weight={weight_key} altitude={info.altitude} "
+            f"index={info.index} rotation={info.rotation} peak_mem={gpu_peak:.2f} MB"
+        )
+    else:
+        print(
+            f"[GPU] [Query] weight={weight_key} altitude={info.altitude} "
+            f"index={info.index} rotation={info.rotation} peak_mem=N/A"
+        )
 
     def _sum_sizes(entries: Dict[str, Optional[Dict[str, object]]]) -> Optional[int]:
         total = 0

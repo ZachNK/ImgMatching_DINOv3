@@ -9,12 +9,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from Test_Embedding import run_global_embedding
+from Test_Embedding import EmbeddingSession, collect_embedding_session_stats, run_global_embedding
 
 try:
     from Generate_DenseFT import generate_dense_feature
@@ -26,11 +25,6 @@ from imatch.utils import create_progress
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_KEY_PATH = BASE_DIR / "json/data_key.json"
-QUERY_ROOT_ENV = Path(os.getenv("QUERY_ROOT", "/opt/queries"))
-QUERY_PREFIX_ENV = os.getenv("QUERY_PREFIX", "Q")
-QUERY_DATASET_PREFIX_ENV = os.getenv("QUERY_DATASET_PREFIX", "Q")
-
-
 def _load_data_registry() -> Dict[str, Any]:
     if not DATA_KEY_PATH.exists():
         raise FileNotFoundError(f"\033[91m[Error] data_key.json not found: {DATA_KEY_PATH}\033[0m")
@@ -52,6 +46,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("json/manifest.json"),
         help="Path to manifest JSON file.",
+    )
+    parser.add_argument(
+        "--reload-each",
+        action="store_true",
+        help="Reload model weights for every embedding call instead of reusing cached models.",
     )
     return parser.parse_args()
 
@@ -82,8 +81,8 @@ def _build_altitude_map(images: Dict[str, Any]) -> Dict[str, List[str]]:
     return mapping
 
 
-def _resolve_dataset_context(manifest: Dict[str, Any]) -> Tuple[str, Dict[str, List[str]], Path, str, str]:
-    """Resolve dataset key, capture map, and query location."""
+def _resolve_dataset_context(manifest: Dict[str, Any]) -> Tuple[str, Dict[str, List[str]]]:
+    """Resolve dataset key and capture map for dataset embeddings."""
 
     dataset_key = manifest.get("dataset_key") or os.getenv("DATASET_KEY") or _first_key(DATASETS)
     if not dataset_key or dataset_key not in DATASETS:
@@ -99,10 +98,7 @@ def _resolve_dataset_context(manifest: Dict[str, Any]) -> Tuple[str, Dict[str, L
         )
 
     altitude_map = _build_altitude_map(images)
-    query_root = QUERY_ROOT_ENV
-    query_prefix = QUERY_PREFIX_ENV
-    dataset_prefix = QUERY_DATASET_PREFIX_ENV
-    return dataset_key, altitude_map, query_root, query_prefix, dataset_prefix
+    return dataset_key, altitude_map
 def _normalize_altitudes(field: Any) -> List[Any]:
     if field is None:
         raise ValueError("\033[91m[Error] Image group must define 'altitudes'.\033[0m")
@@ -135,28 +131,21 @@ def expand_group_entries(
     group: Dict[str, Any],
     altitude_map: Dict[str, List[str]],
     dataset_key: str,
-    query_root: Path,
-    query_prefix: str,
-    dataset_prefix: str,
 ) -> List[Dict[str, Any]]:
     altitudes = _normalize_altitudes(group.get("altitudes"))
     indices_per_alt = _normalize_indices(group.get("indices"), len(altitudes))
-    dataset_dir = query_root / f"{dataset_prefix}{dataset_key}"
-
     expanded: List[Dict[str, Any]] = []
     for altitude, idx_list in zip(altitudes, indices_per_alt):
         capture_id = _resolve_capture_id(altitude, altitude_map, dataset_key)
         label_token = sanitize_group_token(altitude)
         label_display = normalize_group_value(altitude)
         name = f"{capture_id}_{label_token}"
-        query_dir = dataset_dir / f"{query_prefix}{name}"
         expanded.append(
             {
                 "name": name,
                 "capture_id": capture_id,
                 "altitude": label_display,
                 "label_token": label_token,
-                "query_dir": query_dir.as_posix(),
                 "indices": idx_list,
             }
         )
@@ -362,125 +351,144 @@ def _build_denseft_bootstrap_plan(token_jobs: List[Dict[str, Any]]) -> Dict[str,
     return bootstrap_cfg
 
 
-def execute_manifest(manifest_path: Path) -> None:
+def execute_manifest(manifest_path: Path, reload_each: bool = False) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    dataset_key, altitude_map, query_root, query_prefix, dataset_prefix = _resolve_dataset_context(manifest)
+    dataset_key, altitude_map = _resolve_dataset_context(manifest)
     set_dataset_key(dataset_key)
 
     planned_total = 0
-    with create_progress() as manifest_progress:
-        manifest_task = manifest_progress.add_task("[cyan]Manifest 진행률[/cyan]", total=0)
+    session_cache: Dict[str, EmbeddingSession] = {}
+    try:
+        with create_progress() as manifest_progress:
+            manifest_task = manifest_progress.add_task("[cyan]Manifest [/cyan]", total=0)
+    
+            for model_entry in manifest.get("models", []):
+                weight_keys = _expand_weight_keys(model_entry.get("weight_key") or model_entry.get("weight_id"))
+                token_jobs = model_entry.get("token_jobs", [])
+                image_groups = model_entry.get("image_groups", [])
 
-        for model_entry in manifest.get("models", []):
-            weight_keys = _expand_weight_keys(model_entry.get("weight_key") or model_entry.get("weight_id"))
-            token_jobs = model_entry.get("token_jobs", [])
-            image_groups = model_entry.get("image_groups", [])
-
-            if not token_jobs or not image_groups:
-                print("\033[93m[WARN] Skipping model entry without token_jobs/image_groups.\033[0m")
-                continue
-
-            test_plan = _collect_test_embedding_plan(token_jobs)
-            denseft_active = _should_generate_denseft(token_jobs)
-            bootstrap_plan = None
-            if test_plan is None and denseft_active:
-                bootstrap_plan = _build_denseft_bootstrap_plan(token_jobs)
-                test_plan = bootstrap_plan
-
-            for group in image_groups:
-                combos = expand_group_entries(
-                    group,
-                    altitude_map,
-                    dataset_key,
-                    query_root,
-                    query_prefix,
-                    dataset_prefix,
-                )
-                group_job_size = sum(len(combo["indices"]) for combo in combos)
-                if group_job_size == 0:
+                if not token_jobs or not image_groups:
+                    print("\033[93m[WARN] Skipping model entry without token_jobs/image_groups.\033[0m")
                     continue
 
-                for weight_key in weight_keys:
-                    if not (test_plan or denseft_active):
+                test_plan = _collect_test_embedding_plan(token_jobs)
+                denseft_active = _should_generate_denseft(token_jobs)
+                bootstrap_plan = None
+                if test_plan is None and denseft_active:
+                    bootstrap_plan = _build_denseft_bootstrap_plan(token_jobs)
+                    test_plan = bootstrap_plan
+
+                for group in image_groups:
+                    combos = expand_group_entries(
+                        group,
+                        altitude_map,
+                        dataset_key,
+                    )
+                    group_job_size = sum(len(combo["indices"]) for combo in combos)
+                    if group_job_size == 0:
                         continue
 
-                    denseft_enabled = denseft_active
-                    if denseft_enabled and (test_plan is None or not test_plan["outputs"]["grid"]["npy"]):
-                        print(
-                            "    [WARN] generate_denseft requested but PatchGrid npy output is disabled; skipping dense feature job."
-                        )
-                        denseft_enabled = False
+                    for weight_key in weight_keys:
+                        if not (test_plan or denseft_active):
+                            continue
 
-                    if denseft_enabled and generate_dense_feature is None:
-                        print("    [WARN] Generate_DenseFT module unavailable.")
-                        denseft_enabled = False
+                        denseft_enabled = denseft_active
+                        if denseft_enabled and (test_plan is None or not test_plan["outputs"]["grid"]["npy"]):
+                            print(
+                                "    [WARN] generate_denseft requested but PatchGrid npy output is disabled; skipping dense feature job."
+                            )
+                            denseft_enabled = False
 
-                    embedding_enabled = bool(test_plan)
-                    if not (embedding_enabled or denseft_enabled):
-                        continue
+                        if denseft_enabled and generate_dense_feature is None:
+                            print("    [WARN] Generate_DenseFT module unavailable.")
+                            denseft_enabled = False
 
-                    planned_total += group_job_size
-                    manifest_progress.update(manifest_task, total=planned_total)
+                        embedding_enabled = bool(test_plan)
+                        if not (embedding_enabled or denseft_enabled):
+                            continue
 
-                    if embedding_enabled:
-                        outputs_desc = ", ".join(
-                            f"{kind}=({int(test_plan['outputs'][kind]['npy'])}/{int(test_plan['outputs'][kind]['json'])})"
-                            for kind in TOKEN_KINDS
-                        )
-                        print(
-                            f"[JOB] dataset={dataset_key} weight={weight_key} token_type=CombinedTestEmbedding "
-                            f"variant={test_plan['variant']} target_res={test_plan['target_res']} "
-                            f"embedding_cfg={test_plan['embedding_cfg']} outputs[{outputs_desc}]"
-                        )
+                        planned_total += group_job_size
+                        manifest_progress.update(manifest_task, total=planned_total)
 
-                    if denseft_enabled:
-                        print(f"[JOB] dataset={dataset_key} weight={weight_key} token_type=CombinedGenerateDenseFT")
+                        if embedding_enabled:
+                            outputs_desc = ", ".join(
+                                f"{kind}=({int(test_plan['outputs'][kind]['npy'])}/{int(test_plan['outputs'][kind]['json'])})"
+                                for kind in TOKEN_KINDS
+                            )
+                            print(
+                                f"[JOB] dataset={dataset_key} weight={weight_key} token_type=CombinedTestEmbedding "
+                                f"variant={test_plan['variant']} target_res={test_plan['target_res']} "
+                                f"embedding_cfg={test_plan['embedding_cfg']} outputs[{outputs_desc}]"
+                            )
 
-                    for combo in combos:
-                        altitude = combo["altitude"]
-                        name = combo["name"]
-                        query_dir = combo["query_dir"]
+                        if denseft_enabled:
+                            print(f"[JOB] dataset={dataset_key} weight={weight_key} token_type=CombinedGenerateDenseFT")
 
-                        for index in combo["indices"]:
-                            if embedding_enabled or denseft_enabled:
-                                print(f"  -> name={name} altitude={altitude} index={index} query_dir={query_dir}")
+                        session: EmbeddingSession | None = None
+                        if not reload_each:
+                            session = session_cache.get(weight_key)
+                            if session is None:
+                                session = EmbeddingSession(weight_key)
+                                session_cache[weight_key] = session
 
-                            ran_job = False
-                            if embedding_enabled:
-                                run_global_embedding(
-                                    altitude=altitude,
-                                    index=index,
-                                    weight=weight_key,
-                                    target_res=test_plan["target_res"],
-                                    variant=test_plan["variant"],
-                                    embedding_cfg=test_plan["embedding_cfg"],
-                                    variant_params=dict(test_plan["variant_params"]),
-                                    output_plan=test_plan["outputs"],
-                                    dataset_key=dataset_key,
-                                )
-                                ran_job = True
+                        for combo in combos:
+                            altitude = combo["altitude"]
+                            name = combo["name"]
 
-                            if denseft_enabled:
-                                generate_dense_feature(
-                                    altitude=altitude,
-                                    index=index,
-                                    weight=weight_key,
-                                    target_res=test_plan["target_res"],
-                                    variant=test_plan["variant"],
-                                    embedding_cfg=test_plan["embedding_cfg"],
-                                )
-                                ran_job = True
+                            for index in combo["indices"]:
+                                if embedding_enabled or denseft_enabled:
+                                    print(f"  -> name={name} altitude={altitude} index={index}")
 
-                            if ran_job:
-                                manifest_progress.advance(manifest_task)
+                                ran_job = False
+                                if embedding_enabled:
+                                    run_global_embedding(
+                                        altitude=altitude,
+                                        index=index,
+                                        weight=weight_key,
+                                        target_res=test_plan["target_res"],
+                                        variant=test_plan["variant"],
+                                        embedding_cfg=test_plan["embedding_cfg"],
+                                        variant_params=dict(test_plan["variant_params"]),
+                                        output_plan=test_plan["outputs"],
+                                        dataset_key=dataset_key,
+                                        session=session,
+                                    )
+                                    ran_job = True
 
+                                if denseft_enabled:
+                                    generate_dense_feature(
+                                        altitude=altitude,
+                                        index=index,
+                                        weight=weight_key,
+                                        target_res=test_plan["target_res"],
+                                        variant=test_plan["variant"],
+                                        embedding_cfg=test_plan["embedding_cfg"],
+                                    )
+                                    ran_job = True
+
+                                if ran_job:
+                                    manifest_progress.advance(manifest_task)
+    
+    
+    finally:
+        for cached_session in session_cache.values():
+            cached_session.close()
+        stats = collect_embedding_session_stats(reset=True)
+        if stats:
+            print("\n[SESSION] Embedding weight usage summary:")
+            for weight_key, data in stats.items():
+                print(
+                    f"  - weight={weight_key} runs={data.get('runs', 0)} "
+                    f"session_loads={data.get('session_loads', 0)} "
+                    f"reuses={data.get('reuses', 0)} direct_loads={data.get('direct_loads', 0)}"
+                )
 
 def main() -> None:
     args = parse_args()
     manifest_path = args.manifest.resolve()
     if not manifest_path.exists():
         raise FileNotFoundError(f"\033[91m[Error] Manifest not found: {manifest_path}\033[0m")
-    execute_manifest(manifest_path)
+    execute_manifest(manifest_path, reload_each=args.reload_each)
 
 
 if __name__ == "__main__":

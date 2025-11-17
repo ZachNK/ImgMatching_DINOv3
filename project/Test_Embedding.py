@@ -39,6 +39,23 @@ varTargetRes = 1024
 REPO_DIR = Path("/workspace/dinov3")
 TOKEN_OUTPUT_KEYS = ("global", "patch", "grid")
 
+SESSION_STATS: Dict[str, Dict[str, int]] = {}
+
+
+def _session_stat_entry(weight: str) -> Dict[str, int]:
+    entry = SESSION_STATS.get(weight)
+    if entry is None:
+        entry = {"session_loads": 0, "direct_loads": 0, "reuses": 0, "runs": 0}
+        SESSION_STATS[weight] = entry
+    return entry
+
+
+def collect_embedding_session_stats(reset: bool = False) -> Dict[str, Dict[str, int]]:
+    snapshot = {weight: dict(stats) for weight, stats in SESSION_STATS.items()}
+    if reset:
+        SESSION_STATS.clear()
+    return snapshot
+
 ## 출력 계획 정규화 함수: 
 def _normalize_output_plan(
     plan: Optional[Dict[str, Dict[str, bool]]]
@@ -213,6 +230,31 @@ def _resolve_patch_size(model: torch.nn.Module) -> tuple[int, int]:
     return patch[0], patch[1]
 
 
+class EmbeddingSession:
+    """Cache a model loaded via torch.hub.load so jobs can reuse it."""
+
+    def __init__(self, weight_key: str, device: Optional[torch.device] = None) -> None:
+        self.weight_key = weight_key
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        hub_entry, weight_path, dataset_type = weights_path(weight_key)
+        self.hub_entry = hub_entry
+        self.weight_path = weight_path
+        self.dataset_type = dataset_type
+        self.model, _ = progress_bar(pretrained_model, REPO_DIR, hub_entry, weight_path, self.device)
+        self.model.eval()
+        self.session_id = f"{weight_key}:{id(self):x}"
+        stats = _session_stat_entry(weight_key)
+        stats["session_loads"] += 1
+        print(
+            f"[SESSION] [LOAD] weight={weight_key} session={self.session_id} device={self.device} "
+            f"hub_entry={hub_entry}"
+        )
+
+    def close(self) -> None:
+        if self.device.type == "cuda":
+            torch.cuda.empty_cache()
+
+
 def run_global_embedding(
     altitude: int | str,
     index: int,
@@ -223,12 +265,16 @@ def run_global_embedding(
     variant_params: Optional[Dict[str, object]] = None,
     output_plan: Optional[Dict[str, Dict[str, bool]]] = None,
     dataset_key: Optional[str] = None,
+    session: Optional["EmbeddingSession"] = None,
 ) -> None:
     """Execute the full embedding pipeline for the given parameters."""
+    if session is not None and session.weight_key != weight:
+        raise ValueError("\033[91m[Error] EmbeddingSession weight mismatch.\033[0m")
+
     ctx = _build_context(altitude, index, weight, dataset_key, target_res, variant, embedding_cfg, variant_params)
     hub_entry = ctx["hub_entry"]
     weight_path = ctx["key_path"]
-    dataset_type = ctx["dataset_type"]
+    dataset_type = session.dataset_type if session is not None else ctx["dataset_type"]
     image_path = ctx["image_path"]
     file_name = ctx["file_name"]
     patch_name = ctx["patch_name"]
@@ -242,6 +288,20 @@ def run_global_embedding(
     label_display = ctx["label_display"]
     index_str = ctx["index_str"]
     prefix = ctx["prefix"]
+
+    stats = _session_stat_entry(weight)
+    stats["runs"] += 1
+    if session is None:
+        stats["direct_loads"] += 1
+        print(
+            f"[SESSION] [DIRECT LOAD] weight={weight} altitude={label_display} index={index} "
+            f"hub_entry={hub_entry}"
+        )
+    else:
+        stats["reuses"] += 1
+        print(
+            f"[SESSION] [REUSE] weight={weight} session={session.session_id} altitude={label_display} index={index}"
+        )
 
     plan = _normalize_output_plan(output_plan)
     global_plan = plan["global"]
@@ -261,7 +321,7 @@ def run_global_embedding(
     patch_meta_path = patch_dir / f"{patch_name}_meta.json"
     grid_meta_path = grid_dir / f"{grid_name}_meta.json"
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = session.device if session is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
 
@@ -284,9 +344,12 @@ def run_global_embedding(
         "================= Debug: Embedding (Datasets) =================\n",
     )
 
-    print("\nLoading model and weight")
-    model, _ = progress_bar(pretrained_model, REPO_DIR, hub_entry, weight_path, device)
-    print(">>>>>>>>>>>>>>> Loading model and weight completed\n")
+    if session is None:
+        print("\nLoading model and weight")
+        model, _ = progress_bar(pretrained_model, REPO_DIR, hub_entry, weight_path, device)
+        print(">>>>>>>>>>>>>>> Loading model and weight completed\n")
+    else:
+        model = session.model
 
     print("\nPreparing input image")
     img_tensor = progress_bar(load_image, image_path.as_posix())
@@ -439,6 +502,13 @@ def run_global_embedding(
 
     timings["pipeline_total"] = (time.perf_counter() - pipeline_start) * 1000.0
     gpu_peak_mem_mb = _gather_gpu_stats(device)
+    if gpu_peak_mem_mb is not None:
+        print(
+            f"[GPU] weight={weight} altitude={label_display} index={index_str} "
+            f"peak_mem={gpu_peak_mem_mb:.2f} MB"
+        )
+    else:
+        print(f"[GPU] weight={weight} altitude={label_display} index={index_str} peak_mem=N/A")
 
     def _sum_sizes(entries: Dict[str, Optional[Dict[str, Any]]]) -> Optional[int]:
         total = 0
