@@ -30,7 +30,7 @@ services:
     volumes:
       - ${PROJECT_HOST}:/workspace/project
       - ${CODE_HOST}:/workspace/dinov3
-      - ${WEIGHTS_HOST}:/opt/weights:ro
+      - ${WEIGHTS_HOST}:/workspace/weights:ro
       - ${DATASET_HOST}:/opt/datasets:ro
       - ${QUERY_HOST}:/opt/queries
       - ${EXPORT_HOST}:/exports

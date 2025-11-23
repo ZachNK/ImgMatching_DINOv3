@@ -25,7 +25,7 @@ QUERY_DATASET_PREFIX = os.getenv("QUERY_DATASET_PREFIX", "Q")
 
 DATASET_ROOT = IMG_ROOT
 EXPORT_ROOT = Path("/exports")
-WEIGHT_ROOT = Path("/opt/weights")
+WEIGHT_ROOT = Path("/workspace/weights")
 JSON = Path("/workspace/project/json/data_key.json")
 
 with JSON.open("r", encoding="utf-8") as s:
@@ -399,7 +399,7 @@ def save_match_result(
     time_ms: Dict[str, float],
     patch: Dict | None,
 ) -> Path:
-    model_root = f"/opt/weights/{weight_path.name}"
+    model_root = f"/workspace/weights/{weight_path.name}"
     meta = dict(
         repo_dir=str(REPO_DIR),
         img_root=str(IMG_ROOT),
