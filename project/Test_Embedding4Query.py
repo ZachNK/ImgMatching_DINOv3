@@ -29,7 +29,7 @@ from imatch.loading import (
     QUERY_DATASET_PREFIX,
     DATASET_KEY as DEFAULT_DATASET_KEY,
 )
-from imatch.postprocess import process_patch_tokens
+from imatch.postprocess import format_variant_label, process_patch_tokens
 from imatch.pretrained import pretrained_model
 from imatch.utils import progress_bar, token_preview
 
@@ -232,6 +232,9 @@ def process_query_image(
     global_plan = plan["global"]
     patch_plan = plan["patch"]
     grid_plan = plan["grid"]
+    variant_key = str(variant).strip().lower() or "raw"
+    variant_label, normalized_variant_params = format_variant_label(variant_key, variant_params)
+    resolved_variant_params = dict(normalized_variant_params)
 
     emit_global = _should_emit(global_plan)
     emit_patch = _should_emit(patch_plan)
@@ -246,9 +249,9 @@ def process_query_image(
     patch_dir = dirs["patch"]
     grid_dir = dirs["grid"]
 
-    global_base = f"QueryGlobal_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{info.identifier}"
-    patch_base = f"QueryPatchToken_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{info.identifier}"
-    grid_base = f"QueryPatchGrid_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{info.identifier}"
+    global_base = f"QueryGlobal_{resolved_embedding_cfg}_{variant_label}_{hub_entry}_{dataset_type}_{info.identifier}"
+    patch_base = f"QueryPatchToken_{resolved_embedding_cfg}_{variant_label}_{hub_entry}_{dataset_type}_{info.identifier}"
+    grid_base = f"QueryPatchGrid_{resolved_embedding_cfg}_{variant_label}_{hub_entry}_{dataset_type}_{info.identifier}"
 
     npy_path = global_dir / f"{global_base}.npy"
     patch_path = patch_dir / f"{patch_base}.npy"
@@ -271,7 +274,7 @@ def process_query_image(
         f"\t[Query] device: \033[33m{device}\033[0m\n", # e.g. "cuda"
         "OUTPUT: \n",
         f"\t[config] embedding_cfg: \033[33m{resolved_embedding_cfg}\033[0m\n",
-        f"\t[config] variant: \033[33m{variant}\033[0m\n",
+        f"\t[config] variant: \033[33m{variant_key}\033[0m (label=\033[33m{variant_label}\033[0m)\n",
         f"\t[config] altitude/index: \033[33m{info.altitude}/{info.rotation}\033[0m\n",
         f"\tQuery Global embedding DINOv3 numpy array -> \033[34m{npy_path}\033[0m\n",
         f"\tQuery Patch token numpy array             -> \033[34m{patch_path}\033[0m\n",
@@ -333,8 +336,8 @@ def process_query_image(
         post_start = time.perf_counter()
         processed_tokens, patch_post_info = process_patch_tokens(
             patch_tokens,
-            variant,
-            variant_params,
+            variant_key,
+            resolved_variant_params,
         )
         timings["postprocess"] = (time.perf_counter() - post_start) * 1000.0
         patch_tokens = processed_tokens
@@ -443,11 +446,12 @@ def process_query_image(
         if isinstance(params, dict):
             used_variant_params = dict(params)
     if not used_variant_params:
-        used_variant_params = dict(variant_params)
+        used_variant_params = dict(resolved_variant_params)
 
     query_config = {
         "embedding_cfg": resolved_embedding_cfg,
-        "variant": variant,
+        "variant": variant_key,
+        "variant_label": variant_label,
         "variant_params": used_variant_params,
         "weight_id": hub_entry,
         "dataset_type": dataset_type,
@@ -560,7 +564,7 @@ def process_query_image(
         info=info,
         weight_key=weight_key,
         target_res=target_res,
-        variant=variant,
+        variant=variant_key,
         embedding_cfg=resolved_embedding_cfg,
         global_path=npy_path if global_saved else None,
         patch_path=patch_path if patch_plan["npy"] and patch_numpy is not None else None,

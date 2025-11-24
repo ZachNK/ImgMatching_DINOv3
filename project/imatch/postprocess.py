@@ -124,6 +124,137 @@ def _variant_subsample(tokens: torch.Tensor, params: Dict[str, Any]) -> Tuple[to
     }
     return flattened.contiguous(), info
 
+def _normalize_variant_params_for_variant(
+    variant: str,
+    overrides: Dict[str, Any] | None,
+) -> Dict[str, Any]:
+    """
+    variant와 variant_params 조합이 규칙에 맞는지 검사하고,
+    실제로 handler에 넘길 파라미터 dict를 리턴한다.
+
+    규칙:
+      - raw:
+          * norm_threshold / topk / stride 모두 None 또는 아예 없는 상태여야 함
+      - mutual:
+          * norm_threshold 반드시 지정 (None이면 에러)
+          * topk / stride 는 None 또는 키 없음이어야 함 (값 들어가면 에러)
+      - topk:
+          * topk 반드시 지정
+          * norm_threshold / stride 금지
+      - subsample:
+          * stride 반드시 지정
+          * norm_threshold / topk 금지
+    """
+    overrides = dict(overrides or {})
+
+    allowed_keys = {"norm_threshold", "topk", "stride"}
+    unknown = [k for k in overrides.keys() if k not in allowed_keys]
+    if unknown:
+        raise ValueError(
+            f"\033[91m[Error] Unsupported keys in variant_params for variant '{variant}': "
+            f"{unknown}\033[0m"
+        )
+
+    norm_threshold = overrides.get("norm_threshold")
+    topk = overrides.get("topk")
+    stride = overrides.get("stride")
+
+    non_null = {
+        key: value
+        for key, value in (
+            ("norm_threshold", norm_threshold),
+            ("topk", topk),
+            ("stride", stride),
+        )
+        if value is not None
+    }
+
+    if variant == "raw":
+        # raw는 어떤 파라미터도 쓰면 안 됨
+        if non_null:
+            raise ValueError(
+                "\033[91m[Error] variant='raw' must not specify any non-null "
+                f"variant_params; got {non_null}\033[0m"
+            )
+        return {}
+
+    if variant == "mutual":
+        if norm_threshold is None:
+            raise ValueError(
+                "\033[91m[Error] variant='mutual' requires "
+                "variant_params['norm_threshold'] to be set.\033[0m"
+            )
+        # mutual은 norm_threshold만 허용
+        extra = {k: v for k, v in non_null.items() if k != "norm_threshold"}
+        if extra:
+            raise ValueError(
+                "\033[91m[Error] variant='mutual' does not accept keys "
+                f"{list(extra.keys())} in variant_params.\033[0m"
+            )
+        return {"norm_threshold": float(norm_threshold)}
+
+    if variant == "topk":
+        if topk is None:
+            raise ValueError(
+                "\033[91m[Error] variant='topk' requires "
+                "variant_params['topk'] to be set.\033[0m"
+            )
+        extra = {k: v for k, v in non_null.items() if k != "topk"}
+        if extra:
+            raise ValueError(
+                "\033[91m[Error] variant='topk' does not accept keys "
+                f"{list(extra.keys())} in variant_params.\033[0m"
+            )
+        return {"topk": int(topk)}
+
+    if variant == "subsample":
+        if stride is None:
+            raise ValueError(
+                "\033[91m[Error] variant='subsample' requires "
+                "variant_params['stride'] to be set.\033[0m"
+            )
+        extra = {k: v for k, v in non_null.items() if k != "stride"}
+        if extra:
+            raise ValueError(
+                "\033[91m[Error] variant='subsample' does not accept keys "
+                f"{list(extra.keys())} in variant_params.\033[0m"
+            )
+        return {"stride": int(stride)}
+
+    # 여기까지 안 왔어야 함 (resolve_variant에서 이미 걸러짐)
+    raise ValueError(
+        f"\033[91m[Error] Unknown variant '{variant}' in "
+        "_normalize_variant_params_for_variant.\033[0m"
+    )
+
+
+def format_variant_label(
+    variant: str,
+    overrides: Dict[str, Any] | None = None,
+) -> Tuple[str, Dict[str, Any]]:
+    """
+    Build a human/file-friendly variant label and normalised parameters.
+
+    Returns:
+        variant_label: string appended to filenames (e.g. topk_3600, mutual_050)
+        normalized_params: dict validated via _normalize_variant_params_for_variant
+    """
+    variant_key = str(variant).strip().lower() or "raw"
+    normalized_params = _normalize_variant_params_for_variant(variant_key, overrides)
+
+    if variant_key == "mutual":
+        threshold = float(normalized_params.get("norm_threshold", 0.0))
+        label = f"mutual_{int(round(threshold * 100)):03d}"
+    elif variant_key == "topk":
+        label = f"topk_{int(normalized_params.get('topk', 0))}"
+    elif variant_key == "subsample":
+        label = f"subsample_{int(normalized_params.get('stride', 0))}"
+    else:
+        label = variant_key
+
+    return label, normalized_params
+
+
 
 VARIANT_REGISTRY: Dict[str, VariantProcessor] = {
     "raw": VariantProcessor(
@@ -159,11 +290,17 @@ def available_variants() -> Dict[str, VariantProcessor]:
 
 
 def resolve_variant(variant: str) -> VariantProcessor:
-    try:
-        return VARIANT_REGISTRY[variant]
-    except KeyError as err:  # pragma: no cover - defensive
-        raise ValueError(f"Unknown patch-token variant '{variant}'. "
-                         f"Available variants: {list(VARIANT_REGISTRY.keys())}") from err
+    """
+    Resolve a variant label to a VariantProcessor.
+    variant:
+    - Only support'raw', 'mutual', 'topk', 'subsample'
+    """
+    if variant not in VARIANT_REGISTRY:
+        raise ValueError(
+            f"\033[91m\t[Error] Unknown patch-token variant '{variant}'. "
+            f"Available variants: {list(VARIANT_REGISTRY.keys())}\033[0m"
+        )
+    return VARIANT_REGISTRY[variant]
 
 
 def process_patch_tokens(
@@ -172,32 +309,29 @@ def process_patch_tokens(
     overrides: Dict[str, Any] | None = None,
 ) -> Tuple[torch.Tensor, Dict[str, Any]]:
     """
-    Apply the requested post-processing variant to the patch tokens.
+    Process patch tokens according to the specified variant and parameters.
+    -----------
+    inputs:
+        tokens: (N, C) patch tokens
+        variant: one of 'raw', 'mutual', 'topk', 'subsample'
+        overrides: optional dict of parameters to override defaults for the variant
 
-    Parameters
-    ----------
-    tokens:
-        2D tensor (num_tokens, embed_dim) containing the raw patch tokens.
-    variant:
-        Key registered in VARIANT_REGISTRY (raw, mutual, topk, subsample, ...).
-    overrides:
-        Optional dictionary of parameters to override the defaults defined for
-        the chosen variant.
+        e.g. tokens = torch.randn(1000, 256), variant='topk', overrides={'topk': 200}
+    -----------
+    returns:
+        processed_tokens: (M, C) filtered patch tokens
+        info: dict with processing details
 
-    Returns
-    -------
-    processed_tokens:
-        Tensor containing the filtered/processed patch tokens.
-    info:
-        Auxiliary metadata dict with at least ``kept_tokens``, ``keep_ratio``,
-        ``params`` and optionally ``grid``/``grid_shape`` or other debug values.
+        e.g. {'kept_tokens': 200, 'keep_ratio': 0.2, 'params': {'topk': 200}}
+    -----------
     """
     processor = resolve_variant(variant)
-    params = dict(processor.defaults)
-    if overrides:
-        params.update(overrides)
+
+    # manifest에서 온 variant_params를 검증/정규화
+    params = _normalize_variant_params_for_variant(variant, overrides)
 
     processed_tokens, info = processor.handler(tokens, params)
+
     if "params" not in info:
         info["params"] = params
     return processed_tokens, info

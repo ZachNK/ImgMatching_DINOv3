@@ -20,6 +20,7 @@ try:
 except ImportError:  # pragma: no cover
     generate_dense_feature = None
 
+from imatch.postprocess import format_variant_label
 from imatch.loading import set_dataset_key, normalize_group_value, sanitize_group_token
 from imatch.utils import create_progress
 
@@ -378,6 +379,16 @@ def execute_manifest(manifest_path: Path, reload_each: bool = False) -> None:
                     bootstrap_plan = _build_denseft_bootstrap_plan(token_jobs)
                     test_plan = bootstrap_plan
 
+                variant_label: str | None = None
+                if test_plan is not None:
+                    variant_base = str(test_plan.get("variant", "raw")).lower()
+                    variant_label, normalized_variant_params = format_variant_label(
+                        variant_base, test_plan.get("variant_params")
+                    )
+                    test_plan["variant"] = variant_base
+                    test_plan["variant_params"] = dict(normalized_variant_params)
+                    test_plan["variant_label"] = variant_label
+
                 for group in image_groups:
                     combos = expand_group_entries(
                         group,
@@ -415,9 +426,10 @@ def execute_manifest(manifest_path: Path, reload_each: bool = False) -> None:
                                 f"{kind}=({int(test_plan['outputs'][kind]['npy'])}/{int(test_plan['outputs'][kind]['json'])})"
                                 for kind in TOKEN_KINDS
                             )
+                            variant_desc = test_plan.get("variant_label", test_plan["variant"])
                             print(
                                 f"[JOB] dataset={dataset_key} weight={weight_key} token_type=CombinedTestEmbedding "
-                                f"variant={test_plan['variant']} target_res={test_plan['target_res']} "
+                                f"variant={test_plan['variant']} (label={variant_desc}) target_res={test_plan['target_res']} "
                                 f"embedding_cfg={test_plan['embedding_cfg']} outputs[{outputs_desc}]"
                             )
 
@@ -463,6 +475,7 @@ def execute_manifest(manifest_path: Path, reload_each: bool = False) -> None:
                                         target_res=test_plan["target_res"],
                                         variant=test_plan["variant"],
                                         embedding_cfg=test_plan["embedding_cfg"],
+                                        variant_params=dict(test_plan["variant_params"]),
                                     )
                                     ran_job = True
 

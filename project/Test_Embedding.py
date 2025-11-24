@@ -27,7 +27,7 @@ from imatch.utils import (
     progress_bar,
     token_preview
 )
-from imatch.postprocess import process_patch_tokens
+from imatch.postprocess import format_variant_label, process_patch_tokens
 
 # 디버깅용, 단일 실행 파라미터
 varAltitude = 450
@@ -118,14 +118,16 @@ def _build_context(
     # Derive embedding configuration when not explicitly provided.
     default_embedding_cfg = f"res{target_res}_ImageNet"
     resolved_embedding_cfg = embedding_cfg or default_embedding_cfg
+    variant_key = str(variant).strip().lower() or "raw"
+    variant_label, normalized_variant_params = format_variant_label(variant_key, variant_params)
 
     # Token naming follows: token_type → embedding_cfg → variant → weight_id → dataset_type → altitude → index
     label_display = normalize_group_value(altitude)
     label_token = sanitize_group_token(altitude)
     index_str = f"{int(index):04d}"
-    global_base = f"GlobalToken_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
-    patch_base = f"PatchToken_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
-    patch_grid_base = f"PatchGrid_{resolved_embedding_cfg}_{variant}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
+    global_base = f"GlobalToken_{resolved_embedding_cfg}_{variant_label}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
+    patch_base = f"PatchToken_{resolved_embedding_cfg}_{variant_label}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
+    patch_grid_base = f"PatchGrid_{resolved_embedding_cfg}_{variant_label}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
 
     export_root = EMBED_ROOT / weight
     altitude_dir = export_root / label_token
@@ -150,8 +152,9 @@ def _build_context(
         "patch_dir": patch_dir,
         "grid_dir": grid_dir,
         "embedding_cfg": resolved_embedding_cfg,
-        "variant": variant,
-        "variant_params": dict(variant_params or {}),
+        "variant": variant_key,
+        "variant_label": variant_label,
+        "variant_params": dict(normalized_variant_params),
         "index_str": index_str,
         "prefix": prefix,
     }
@@ -284,6 +287,7 @@ def run_global_embedding(
     grid_dir = ctx["grid_dir"]
     resolved_embedding_cfg = ctx["embedding_cfg"]
     resolved_variant = ctx["variant"]
+    resolved_variant_label = ctx["variant_label"]
     resolved_variant_params = dict(ctx["variant_params"])
     label_display = ctx["label_display"]
     index_str = ctx["index_str"]
@@ -336,7 +340,7 @@ def run_global_embedding(
         f"\tdevice: \033[33m{device}\033[0m\n", # e.g. "cuda"
         "OUTPUT: \n",
         f"\t[config] embedding_cfg: \033[33m{resolved_embedding_cfg}\033[0m\n",
-        f"\t[config] variant: \033[33m{resolved_variant}\033[0m\n",
+        f"\t[config] variant: \033[33m{resolved_variant}\033[0m (label=\033[33m{resolved_variant_label}\033[0m)\n",
         f"\t[config] group/index: \033[33m{label_display}/{index_str}\033[0m (prefix=\033[33m{prefix}\033[0m)\n",
         f"\t[outputs] Test Global embedding DINOv3 numpy array -> \033[34m{npy_path}\033[0m\n",
         f"\t[outputs] Test Patch token numpy array             -> \033[34m{patch_path}\033[0m\n",
@@ -555,6 +559,7 @@ def run_global_embedding(
     common_config = {
         "embedding_cfg": resolved_embedding_cfg,
         "variant": resolved_variant,
+        "variant_label": resolved_variant_label,
         "variant_params": used_variant_params,
         "weight_id": hub_entry,
         "dataset_type": dataset_type,

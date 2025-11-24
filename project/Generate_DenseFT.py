@@ -10,6 +10,7 @@ import torch
 import torch.nn.functional as F
 from pathlib import Path
 from PIL import Image
+from imatch.postprocess import format_variant_label
 from imatch.loading import (
     EMBED_ROOT,
     weights_path,
@@ -29,6 +30,7 @@ def _build_context(
     weight: str,
     variant: str,
     embedding_cfg: str,
+    variant_params: dict[str, object] | None = None,
 ) -> dict[str, Path | str]:
     """Prepare the shared paths used throughout the dense feature pipeline."""
     hub_entry, _, dataset_type = weights_path(weight) # e.g. dinov3_vitl16
@@ -36,9 +38,10 @@ def _build_context(
     label_token = sanitize_group_token(altitude)
     index_str = f"{int(index):04d}"
     prefix = file_prefix(label_str, index) # e.g. 200_0150
+    variant_label, _ = format_variant_label(variant, variant_params)
 
-    grid_name = f"PatchGrid_{embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{label_token}_{index_str}"
-    dense_name = f"DenseFT_{embedding_cfg}_{variant}_{hub_entry}_{dataset_type}_{label_token}_{index_str}"
+    grid_name = f"PatchGrid_{embedding_cfg}_{variant_label}_{hub_entry}_{dataset_type}_{label_token}_{index_str}"
+    dense_name = f"DenseFT_{embedding_cfg}_{variant_label}_{hub_entry}_{dataset_type}_{label_token}_{index_str}"
 
     altitude_dir = EMBED_ROOT / weight / label_token
     grid_dir = altitude_dir / "PatchGrid"
@@ -50,6 +53,7 @@ def _build_context(
         "grid_path": grid_dir / f"{grid_name}.npy",
         "dense_path": dense_dir / f"{dense_name}.png",
         "dense_dir": dense_dir,
+        "variant_label": variant_label,
     }
 
 
@@ -60,10 +64,15 @@ def generate_dense_feature(
     target_res: int = 1024,
     variant: str = "raw",
     embedding_cfg: str | None = None,
+    variant_params: dict[str, object] | None = None,
 ) -> None:
-    """Load the patch grid exported by Test_global_embedding and save a PNG."""
+    """
+    Load the patch grid exported by Test_global_embedding and save a PNG.
+
+    variant_params are parsed to mirror the filenames produced during embedding.
+    """
     resolved_embedding_cfg = embedding_cfg or f"res{int(target_res)}_ImageNet"
-    ctx = _build_context(altitude, index, weight, variant, resolved_embedding_cfg)
+    ctx = _build_context(altitude, index, weight, variant, resolved_embedding_cfg, variant_params)
     grid_path = ctx["grid_path"]
     dense_path = ctx["dense_path"]
     dense_dir = ctx["dense_dir"]

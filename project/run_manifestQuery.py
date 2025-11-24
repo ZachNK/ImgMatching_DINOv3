@@ -26,6 +26,7 @@ from Test_Embedding4Query import (
     _parse_query_filename,
 )
 from Generate_DenseFT4Query import generate_query_dense_feature
+from imatch.postprocess import format_variant_label
 from imatch.loading import weights_path, set_dataset_key, normalize_group_value, sanitize_group_token
 from imatch.pretrained import pretrained_model
 from imatch.utils import progress_bar, create_progress
@@ -516,6 +517,16 @@ def execute_manifest(manifest_path: Path, reload_each: bool = False) -> None:
                 if test_plan is None:
                     print("\033[93m[WARN] Skipping model entry with no runnable test_embedding plan.\033[0m")
                     continue
+
+                variant_label: str | None = None
+                if test_plan is not None:
+                    variant_base = str(test_plan.get("variant", "raw")).lower()
+                    variant_label, normalized_variant_params = format_variant_label(
+                        variant_base, test_plan.get("variant_params")
+                    )
+                    test_plan["variant"] = variant_base
+                    test_plan["variant_params"] = dict(normalized_variant_params)
+                    test_plan["variant_label"] = variant_label
     
                 if denseft_active and not test_plan["outputs"]["grid"]["npy"]:
                     print(
@@ -541,12 +552,13 @@ def execute_manifest(manifest_path: Path, reload_each: bool = False) -> None:
                     f"{kind}=({int(test_plan['outputs'][kind]['npy'])}/{int(test_plan['outputs'][kind]['json'])})"
                     for kind in TOKEN_KINDS
                 )
-    
+                variant_desc = test_plan.get("variant_label", test_plan["variant"])
+
                 for weight_key in weight_keys:
                     model, hub_entry, dataset_type = _load_weighted_model(weight_key, device, reload_each=reload_each)
                     job_counter += 1
                     print(
-                        f"[JOB {job_counter}] dataset={dataset_key} weight={weight_key} variant={test_plan['variant']} "
+                        f"[JOB {job_counter}] dataset={dataset_key} weight={weight_key} variant={test_plan['variant']} (label={variant_desc}) "
                         f"target_res={test_plan['target_res']} embedding_cfg={test_plan['embedding_cfg']} "
                         f"outputs[{outputs_desc}] denseft={int(denseft_active)}"
                     )
