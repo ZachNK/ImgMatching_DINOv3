@@ -1,4 +1,4 @@
-# project/Test_Embedding.py
+﻿# project/Test_Embedding.py
 from __future__ import annotations
 import math
 from pathlib import Path
@@ -7,6 +7,7 @@ import json
 import time
 import numpy as np
 import torch
+import os
 from imatch.pretrained import pretrained_model
 from imatch.preprocess import build_transform
 from imatch.extracting import (
@@ -28,14 +29,15 @@ from imatch.utils import (
     token_preview
 )
 from imatch.postprocess import format_variant_label, process_patch_tokens
+from imatch.pca_utils import load_pca_basis, apply_pca
 
-# 디버깅용, 단일 실행 파라미터
+# ?붾쾭源낆슜, ?⑥씪 ?ㅽ뻾 ?뚮씪誘명꽣
 varAltitude = 450
 varIndex = 1
 varWeight = "vitb16"
 varTargetRes = 1024
 
-## 전역 상수
+## ?꾩뿭 ?곸닔
 REPO_DIR = Path("/workspace/dinov3")
 TOKEN_OUTPUT_KEYS = ("global", "patch", "grid")
 
@@ -56,16 +58,16 @@ def collect_embedding_session_stats(reset: bool = False) -> Dict[str, Dict[str, 
         SESSION_STATS.clear()
     return snapshot
 
-## 출력 계획 정규화 함수: 
+## 異쒕젰 怨꾪쉷 ?뺢퇋???⑥닔: 
 def _normalize_output_plan(
     plan: Optional[Dict[str, Dict[str, bool]]]
 ) -> Dict[str, Dict[str, bool]]:
     """
-    정규화된 출력 계획을 반환합니다. plan이 None인 경우 모든 토큰 유형에 대해 npy 및 json 출력을 활성화합니다.
-    각 토큰 유형에 대해 plan이 제공된 경우, npy 및 json 출력 여부를 개별적으로 설정합니다.
-    입력:
+    ?뺢퇋?붾맂 異쒕젰 怨꾪쉷??諛섑솚?⑸땲?? plan??None??寃쎌슦 紐⑤뱺 ?좏겙 ?좏삎?????npy 諛?json 異쒕젰???쒖꽦?뷀빀?덈떎.
+    媛??좏겙 ?좏삎?????plan???쒓났??寃쎌슦, npy 諛?json 異쒕젰 ?щ?瑜?媛쒕퀎?곸쑝濡??ㅼ젙?⑸땲??
+    ?낅젰:
         - plan: Optional[Dict[str, Dict[str, bool]]]
-    출력:
+    異쒕젰:
         - Dict[str, Dict[str, bool]]
 
     e.g.1)
@@ -74,7 +76,7 @@ def _normalize_output_plan(
         "patch": {"npy": True, "json": True},
         "grid": {"npy": False, "json": True}
     })
-    → returns: {
+    ??returns: {
         "global": {"npy": True, "json": False}, 
         "patch": {"npy": True, "json": True},
         "grid": {"npy": False, "json": True}
@@ -82,7 +84,7 @@ def _normalize_output_plan(
 
     e.g.2)
     _normalize_output_plan(None)
-    → returns: {
+    ??returns: {
         "global": {"npy": True, "json": True}, 
         "patch": {"npy": True, "json": True},
         "grid": {"npy": True, "json": True}
@@ -109,6 +111,9 @@ def _build_context(
     variant: str,
     embedding_cfg: Optional[str],
     variant_params: Optional[Dict[str, object]],
+    variant_label: Optional[str] = None,
+    pca_dim: Optional[int] = None,
+    pca_basis_path: Optional[str] = None,
 ) -> Dict[str, object]:
     """Assemble frequently reused values for a single inference run."""
     hub_entry, key, dt_type = weights_path(weight) # e.g. "dinov3_vit7b16", "/opt/weights/dinov3_vit7b16_pretrain_sat493m-a6675841.pth", "SAT"
@@ -116,18 +121,19 @@ def _build_context(
     prefix = file_prefix(image_spec.label, index) # e.g. "200_0150"
 
     # Derive embedding configuration when not explicitly provided.
-    default_embedding_cfg = f"res{target_res}_ImageNet"
+    default_embedding_cfg = f"res{target_res}"
     resolved_embedding_cfg = embedding_cfg or default_embedding_cfg
     variant_key = str(variant).strip().lower() or "raw"
-    variant_label, normalized_variant_params = format_variant_label(variant_key, variant_params)
+    base_variant_label, normalized_variant_params = format_variant_label(variant_key, variant_params)
+    resolved_variant_label = variant_label or base_variant_label
 
-    # Token naming follows: token_type → embedding_cfg → variant → weight_id → dataset_type → altitude → index
+    # Token naming follows: token_type ??embedding_cfg ??variant ??weight_id ??dataset_type ??altitude ??index
     label_display = normalize_group_value(altitude)
     label_token = sanitize_group_token(altitude)
     index_str = f"{int(index):04d}"
-    global_base = f"GlobalToken_{resolved_embedding_cfg}_{variant_label}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
-    patch_base = f"PatchToken_{resolved_embedding_cfg}_{variant_label}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
-    patch_grid_base = f"PatchGrid_{resolved_embedding_cfg}_{variant_label}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
+    global_base = f"GlobalToken_{resolved_embedding_cfg}_{resolved_variant_label}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
+    patch_base = f"PatchToken_{resolved_embedding_cfg}_{resolved_variant_label}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
+    patch_grid_base = f"PatchGrid_{resolved_embedding_cfg}_{resolved_variant_label}_{hub_entry}_{dt_type}_{label_token}_{index_str}"
 
     export_root = EMBED_ROOT / weight
     altitude_dir = export_root / label_token
@@ -153,8 +159,10 @@ def _build_context(
         "grid_dir": grid_dir,
         "embedding_cfg": resolved_embedding_cfg,
         "variant": variant_key,
-        "variant_label": variant_label,
+        "variant_label": resolved_variant_label,
         "variant_params": dict(normalized_variant_params),
+        "pca_dim": pca_dim,
+        "pca_basis": pca_basis_path,
         "index_str": index_str,
         "prefix": prefix,
     }
@@ -269,12 +277,30 @@ def run_global_embedding(
     output_plan: Optional[Dict[str, Dict[str, bool]]] = None,
     dataset_key: Optional[str] = None,
     session: Optional["EmbeddingSession"] = None,
+    variant_label: Optional[str] = None,
+    topk_enabled: bool = False,
+    topk_k: Optional[int] = None,
+    topk_ratio: Optional[float] = None,
+    pca_dim: Optional[int] = None,
+    pca_basis_path: Optional[str] = None,
 ) -> None:
     """Execute the full embedding pipeline for the given parameters."""
     if session is not None and session.weight_key != weight:
         raise ValueError("\033[91m[Error] EmbeddingSession weight mismatch.\033[0m")
 
-    ctx = _build_context(altitude, index, weight, dataset_key, target_res, variant, embedding_cfg, variant_params)
+    ctx = _build_context(
+        altitude,
+        index,
+        weight,
+        dataset_key,
+        target_res,
+        variant,
+        embedding_cfg,
+        variant_params,
+        variant_label,
+        pca_dim,
+        pca_basis_path,
+    )
     hub_entry = ctx["hub_entry"]
     weight_path = ctx["key_path"]
     dataset_type = session.dataset_type if session is not None else ctx["dataset_type"]
@@ -289,9 +315,13 @@ def run_global_embedding(
     resolved_variant = ctx["variant"]
     resolved_variant_label = ctx["variant_label"]
     resolved_variant_params = dict(ctx["variant_params"])
+    resolved_pca_dim = ctx.get("pca_dim")
+    resolved_pca_basis = ctx.get("pca_basis")
     label_display = ctx["label_display"]
     index_str = ctx["index_str"]
     prefix = ctx["prefix"]
+    apply_topk = bool(topk_enabled or topk_k is not None or topk_ratio is not None)
+    effective_topk: Optional[int] = None
 
     stats = _session_stat_entry(weight)
     stats["runs"] += 1
@@ -413,33 +443,108 @@ def run_global_embedding(
     patch_grid = None
     patch_numpy = None
     patch_post_info = None
+    base_post_info = None
+    effective_topk = None
+    pca_applied = False
+    pca_info = {
+        "applied": False,
+        "dim": resolved_pca_dim,
+        "basis": resolved_pca_basis or os.getenv("PCA_BASIS_PATH"),
+    }
     if global_tokens is not None:
         global_tokens = global_tokens.detach().cpu()
     if patch_tokens is not None:
         patch_tokens = patch_tokens.detach().cpu()
         post_start = time.perf_counter()
-        processed_tokens, patch_post_info = process_patch_tokens(
+        processed_tokens, base_post_info = process_patch_tokens(
             patch_tokens,
             resolved_variant,
             resolved_variant_params,
         )
+        grid_from_info = None
+        if base_post_info is not None and "grid" in base_post_info:
+            grid_from_info = base_post_info.pop("grid")
+        if base_post_info is not None and "grid_shape" in base_post_info:
+            base_post_info.pop("grid_shape")
+
+        topk_info = None
+        if apply_topk:
+            effective_topk = topk_k
+            if topk_ratio is not None:
+                effective_topk = max(1, int(processed_tokens.shape[0] * float(topk_ratio)))
+            if effective_topk is None or effective_topk <= 0:
+                effective_topk = processed_tokens.shape[0]
+            processed_tokens, topk_info = process_patch_tokens(
+                processed_tokens,
+                "topk",
+                {"topk": effective_topk},
+            )
+            # Combine info from base + topk stages
+            base_keep = base_post_info.get("keep_ratio", 1.0) if base_post_info else 1.0
+            top_keep = topk_info.get("keep_ratio", 1.0) if topk_info else 1.0
+            combined_params = {
+                "patch_variant": resolved_variant,
+                "patch_params": dict(resolved_variant_params),
+                "pca_dim": resolved_pca_dim,
+                "topk": {
+                    "enabled": True,
+                    "k": effective_topk,
+                    "ratio": float(topk_ratio) if topk_ratio is not None else None,
+                },
+            }
+            patch_post_info = {
+                **topk_info,
+                "keep_ratio": float(base_keep) * float(top_keep),
+                "params": combined_params,
+                "base": base_post_info,
+                "topk_applied": True,
+            }
+        else:
+            combined_params = {
+                "patch_variant": resolved_variant,
+                "patch_params": dict(resolved_variant_params),
+                "pca_dim": resolved_pca_dim,
+                "topk": {"enabled": False, "k": None, "ratio": None},
+            }
+            patch_post_info = base_post_info or {}
+            patch_post_info["params"] = combined_params
+            if "keep_ratio" not in patch_post_info:
+                patch_post_info["keep_ratio"] = base_post_info.get("keep_ratio", 1.0) if base_post_info else 1.0
+            patch_post_info["topk_applied"] = False
         timings["postprocess"] = (time.perf_counter() - post_start) * 1000.0
         patch_tokens = processed_tokens
+
+        # Apply global PCA projection if requested
+        if resolved_pca_dim:
+            basis_path = resolved_pca_basis or os.getenv("PCA_BASIS_PATH")
+            if not basis_path:
+                raise ValueError(
+                    "\033[91m[Error] PCA variant requested but no basis provided. "
+                    "Set experiment.pca_basis in manifest or PCA_BASIS_PATH env.\033[0m"
+                )
+            comps, mean = load_pca_basis(basis_path, int(resolved_pca_dim))
+            patch_tokens = apply_pca(patch_tokens, comps, mean)
+            pca_applied = True
+            pca_info["applied"] = True
+            pca_info["basis"] = basis_path
+
+        if patch_post_info is None:
+            patch_post_info = {}
+        if "params" not in patch_post_info:
+            patch_post_info["params"] = {}
+        patch_post_info["params"]["pca"] = pca_info
+        patch_post_info["params"]["pca"] = pca_info
+
         if emit_patch:
             patch_numpy = patch_tokens.numpy()
-        grid_from_info = None
-        if patch_post_info is not None and "grid" in patch_post_info:
-            grid_from_info = patch_post_info.pop("grid")
-        if patch_post_info is not None and "grid_shape" in patch_post_info:
-            patch_post_info.pop("grid_shape")
         if emit_grid:
-            if grid_from_info is not None:
-                patch_grid = grid_from_info.detach().cpu() if isinstance(grid_from_info, torch.Tensor) else torch.as_tensor(grid_from_info)
-            else:
-                try:
+            try:
+                if not pca_applied and grid_from_info is not None:
+                    patch_grid = grid_from_info.detach().cpu() if isinstance(grid_from_info, torch.Tensor) else torch.as_tensor(grid_from_info)
+                else:
                     patch_grid = patch2grid(patch_tokens)
-                except ValueError as err:
-                    print(f"\t\033[91m[WARN 1: Global Embedding]  patch grid reshape failed: {err}\033[0m")
+            except ValueError as err:
+                print(f"\t\033[91m[WARN 1: Global Embedding]  patch grid reshape failed: {err}\033[0m")
     elif need_patch:
         print("\t\033[91m[WARN 2: Global Embedding] patch tokens could not be extracted.\033[0m")
 
@@ -466,6 +571,7 @@ def run_global_embedding(
     print(f"<<< Test Global Embedding OUTPUT >>>\n")
 
     global_array = None
+    # Export Global tokens
     if global_plan["npy"]:
         if global_tokens is not None:
             global_array = global_tokens.numpy()
@@ -476,16 +582,26 @@ def run_global_embedding(
             print("\t\033[91m[warn] Global npy requested but tokens unavailable.\033[0m")
     else:
         print("\t\033[91m[skip] Global npy disabled by configuration.\033[0m")
+
+    # Export Patch tokens
     if patch_plan["npy"]:
         if patch_numpy is not None:
             patch_dir.mkdir(parents=True, exist_ok=True)
             progress_bar(np.save, patch_path, patch_numpy)
             print(f"\t\033[32m[saved] Test Patch token numpy array       -> {patch_path}\033[0m")
+            
+            if patch_post_info is not None and "scores" in patch_post_info:
+                scores = np.asarray(patch_post_info["scores"])
+                score_path = patch_dir / f"{patch_name}_scores.npy"
+                progress_bar(np.save, score_path, scores)
+                print(f"\t\033[32m[saved] Test Patch token scores array      -> {score_path}\033[0m")
         else:
             print("\t\033[91m[warn] Patch npy requested but tokens unavailable.\033[0m")
     else:
         print("\t\033[91m[skip] Patch npy disabled by configuration.\033[0m")
+    
     grid_array = None
+    # Export Patch grid
     if emit_grid and patch_grid is not None:
         if isinstance(patch_grid, torch.Tensor):
             grid_array = patch_grid.detach().cpu().numpy()
@@ -497,6 +613,23 @@ def run_global_embedding(
             grid_dir.mkdir(parents=True, exist_ok=True)
             np.save(grid_path, grid_array)
             print(f"\t\033[32m[saved] Test Patch grid numpy array         -> {grid_path}\033[0m")
+
+            score_grid = None
+            if (
+                patch_post_info is not None
+                and "scores" in patch_post_info
+                and patch_grid is not None
+            ):
+                scores = np.asarray(patch_post_info["scores"])
+                H, W = patch_grid.shape[0], patch_grid.shape[1]
+                if scores.size == H * W:
+                    score_grid = scores.reshape((H, W)) 
+                    score_grid_path = grid_dir / f"{grid_name}_scores.npy"
+                    np.save(score_grid_path, score_grid)
+                    print(f"\t\033[32m[saved] Test Patch grid scores array        -> {score_grid_path}\033[0m")
+                else:
+                    print("\t\033[91m[warn] Score size does not match grid shape, skip saving score grid.\033[0m")
+
         else:
             print("\t\033[91m[warn] Patch grid npy requested but grid unavailable.\033[0m")
     else:
@@ -545,13 +678,23 @@ def run_global_embedding(
         "index": None,
     }
 
-    used_variant_params = {}
+    default_variant_params = {
+        "patch_variant": resolved_variant,
+        "patch_params": dict(resolved_variant_params),
+        "pca_dim": resolved_pca_dim,
+        "pca": pca_info,
+        "topk": {
+            "enabled": apply_topk,
+            "k": effective_topk,
+            "ratio": float(topk_ratio) if topk_ratio is not None else None,
+        },
+    }
+
+    used_variant_params = dict(default_variant_params)
     if patch_post_info and "params" in patch_post_info:
         params = patch_post_info["params"]
         if isinstance(params, dict):
-            used_variant_params = dict(params)
-    if not used_variant_params:
-        used_variant_params = dict(resolved_variant_params)
+            used_variant_params.update(params)
 
     rotations_config = used_variant_params.get("rotations") if isinstance(used_variant_params, dict) else None
     aggregation_config = used_variant_params.get("aggregation") if isinstance(used_variant_params, dict) else None
@@ -559,6 +702,7 @@ def run_global_embedding(
     common_config = {
         "embedding_cfg": resolved_embedding_cfg,
         "variant": resolved_variant,
+        "experiment_variant": resolved_variant_label,
         "variant_label": resolved_variant_label,
         "variant_params": used_variant_params,
         "weight_id": hub_entry,
@@ -607,7 +751,7 @@ def run_global_embedding(
             "token_count": int(patch_tokens.shape[0]),
             "embedding_dim": int(patch_tokens.shape[1]) if patch_tokens.ndim == 2 else None,
             "matching_count": patch_post_info.get("kept_tokens") if patch_post_info else int(patch_tokens.shape[0]),
-            "mutual_knn_tokens": patch_post_info.get("kept_tokens") if patch_post_info and resolved_variant == "mutual" else None,
+            "mutual_knn_tokens": None,
             "keep_ratio": patch_post_info.get("keep_ratio") if patch_post_info else 1.0,
             "recall@1": None,
             "recall@5": None,
@@ -681,3 +825,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

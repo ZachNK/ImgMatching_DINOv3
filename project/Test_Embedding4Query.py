@@ -1,4 +1,4 @@
-"""
+﻿"""
 Extract embeddings for query images generated via rotations/crops.
 
 This script mirrors Test_Embedding but reads images directly from the query
@@ -30,6 +30,7 @@ from imatch.loading import (
     DATASET_KEY as DEFAULT_DATASET_KEY,
 )
 from imatch.postprocess import format_variant_label, process_patch_tokens
+from imatch.pca_utils import load_pca_basis, apply_pca
 from imatch.pretrained import pretrained_model
 from imatch.utils import progress_bar, token_preview
 
@@ -226,14 +227,21 @@ def process_query_image(
     variant_params: Dict[str, object],
     output_plan: Optional[Dict[str, Dict[str, bool]]] = None,
     query_embed_root: Path = QUERY_EMBED_ROOT,
+    variant_label: Optional[str] = None,
+    topk_enabled: bool = False,
+    topk_k: Optional[int] = None,
+    topk_ratio: Optional[float] = None,
+    pca_dim: Optional[int] = None,
+    pca_basis_path: Optional[str] = None,
 ) -> QueryEmbeddingResult:
-    resolved_embedding_cfg = embedding_cfg or f"res{target_res}_ImageNet{dataset_type}"
+    resolved_embedding_cfg = embedding_cfg or f"res{target_res}"
     plan = _normalize_output_plan(output_plan)
     global_plan = plan["global"]
     patch_plan = plan["patch"]
     grid_plan = plan["grid"]
     variant_key = str(variant).strip().lower() or "raw"
-    variant_label, normalized_variant_params = format_variant_label(variant_key, variant_params)
+    base_variant_label, normalized_variant_params = format_variant_label(variant_key, variant_params)
+    resolved_variant_label = variant_label or base_variant_label
     resolved_variant_params = dict(normalized_variant_params)
 
     emit_global = _should_emit(global_plan)
@@ -242,6 +250,10 @@ def process_query_image(
     need_patch = emit_patch or emit_grid
     if not (emit_global or need_patch):
         raise ValueError("\033[91m[Error] Query job must enable at least one token output.\033[0m")
+    apply_topk = bool(topk_enabled or topk_k is not None or topk_ratio is not None)
+    effective_topk: Optional[int] = None
+    resolved_pca_dim = pca_dim
+    resolved_pca_basis = pca_basis_path or os.getenv("PCA_BASIS_PATH")
 
     dirs = _build_output_dirs(weight_key, info.altitude, info.rotation, query_embed_root)
     altitude_dir = dirs["altitude"]
@@ -249,9 +261,9 @@ def process_query_image(
     patch_dir = dirs["patch"]
     grid_dir = dirs["grid"]
 
-    global_base = f"QueryGlobal_{resolved_embedding_cfg}_{variant_label}_{hub_entry}_{dataset_type}_{info.identifier}"
-    patch_base = f"QueryPatchToken_{resolved_embedding_cfg}_{variant_label}_{hub_entry}_{dataset_type}_{info.identifier}"
-    grid_base = f"QueryPatchGrid_{resolved_embedding_cfg}_{variant_label}_{hub_entry}_{dataset_type}_{info.identifier}"
+    global_base = f"QueryGlobal_{resolved_embedding_cfg}_{resolved_variant_label}_{hub_entry}_{dataset_type}_{info.identifier}"
+    patch_base = f"QueryPatchToken_{resolved_embedding_cfg}_{resolved_variant_label}_{hub_entry}_{dataset_type}_{info.identifier}"
+    grid_base = f"QueryPatchGrid_{resolved_embedding_cfg}_{resolved_variant_label}_{hub_entry}_{dataset_type}_{info.identifier}"
 
     npy_path = global_dir / f"{global_base}.npy"
     patch_path = patch_dir / f"{patch_base}.npy"
@@ -274,7 +286,7 @@ def process_query_image(
         f"\t[Query] device: \033[33m{device}\033[0m\n", # e.g. "cuda"
         "OUTPUT: \n",
         f"\t[config] embedding_cfg: \033[33m{resolved_embedding_cfg}\033[0m\n",
-        f"\t[config] variant: \033[33m{variant_key}\033[0m (label=\033[33m{variant_label}\033[0m)\n",
+        f"\t[config] variant: \033[33m{variant_key}\033[0m (label=\033[33m{resolved_variant_label}\033[0m)\n",
         f"\t[config] altitude/index: \033[33m{info.altitude}/{info.rotation}\033[0m\n",
         f"\tQuery Global embedding DINOv3 numpy array -> \033[34m{npy_path}\033[0m\n",
         f"\tQuery Patch token numpy array             -> \033[34m{patch_path}\033[0m\n",
@@ -328,38 +340,109 @@ def process_query_image(
     grid_array = None
     patch_numpy = None
     patch_post_info = None
+    pca_applied = False
+    pca_info = {
+        "applied": False,
+        "dim": resolved_pca_dim,
+        "basis": resolved_pca_basis,
+    }
 
     if global_tokens is not None:
         global_tokens = global_tokens.detach().cpu()
     if patch_tokens is not None:
         patch_tokens = patch_tokens.detach().cpu()
         post_start = time.perf_counter()
-        processed_tokens, patch_post_info = process_patch_tokens(
+        processed_tokens, base_post_info = process_patch_tokens(
             patch_tokens,
             variant_key,
             resolved_variant_params,
         )
+        grid_from_info = None
+        if base_post_info is not None and "grid" in base_post_info:
+            grid_from_info = base_post_info.pop("grid")
+        if base_post_info is not None and "grid_shape" in base_post_info:
+            base_post_info.pop("grid_shape")
+
+        topk_info = None
+        if apply_topk:
+            effective_topk = topk_k
+            if topk_ratio is not None:
+                effective_topk = max(1, int(processed_tokens.shape[0] * float(topk_ratio)))
+            if effective_topk is None or effective_topk <= 0:
+                effective_topk = processed_tokens.shape[0]
+            processed_tokens, topk_info = process_patch_tokens(
+                processed_tokens,
+                "topk",
+                {"topk": effective_topk},
+            )
+            base_keep = base_post_info.get("keep_ratio", 1.0) if base_post_info else 1.0
+            top_keep = topk_info.get("keep_ratio", 1.0) if topk_info else 1.0
+            combined_params = {
+                "patch_variant": variant_key,
+                "patch_params": dict(resolved_variant_params),
+                "pca_dim": resolved_pca_dim,
+                "topk": {
+                    "enabled": True,
+                    "k": effective_topk,
+                    "ratio": float(topk_ratio) if topk_ratio is not None else None,
+                },
+            }
+            patch_post_info = {
+                **topk_info,
+                "keep_ratio": float(base_keep) * float(top_keep),
+                "params": combined_params,
+                "base": base_post_info,
+                "topk_applied": True,
+            }
+        else:
+            combined_params = {
+                "patch_variant": variant_key,
+                "patch_params": dict(resolved_variant_params),
+                "pca_dim": resolved_pca_dim,
+                "topk": {"enabled": False, "k": None, "ratio": None},
+            }
+            patch_post_info = base_post_info or {}
+            patch_post_info["params"] = combined_params
+            if "keep_ratio" not in patch_post_info:
+                patch_post_info["keep_ratio"] = base_post_info.get("keep_ratio", 1.0) if base_post_info else 1.0
+            patch_post_info["topk_applied"] = False
         timings["postprocess"] = (time.perf_counter() - post_start) * 1000.0
         patch_tokens = processed_tokens
         if patch_plan["npy"]:
             patch_numpy = patch_tokens.numpy()
-        grid_from_info = None
-        if patch_post_info is not None and "grid" in patch_post_info:
-            grid_from_info = patch_post_info.pop("grid")
-        if patch_post_info is not None and "grid_shape" in patch_post_info:
-            patch_post_info.pop("grid_shape")
-        if emit_grid:
-            if grid_from_info is not None:
-                patch_grid = (
-                    grid_from_info.detach().cpu()
-                    if isinstance(grid_from_info, torch.Tensor)
-                    else torch.as_tensor(grid_from_info)
+        if resolved_pca_dim:
+            basis_path = resolved_pca_basis
+            if not basis_path:
+                raise ValueError(
+                    "\033[91m[Error] PCA variant requested but no basis provided. "
+                    "Set experiment.pca_basis in manifest or PCA_BASIS_PATH env.\033[0m"
                 )
-            else:
-                try:
+            comps, mean = load_pca_basis(basis_path, int(resolved_pca_dim))
+            patch_tokens = apply_pca(patch_tokens, comps, mean)
+            pca_applied = True
+            pca_info["applied"] = True
+            pca_info["basis"] = basis_path
+
+        if patch_post_info is None:
+            patch_post_info = {}
+        if "params" not in patch_post_info:
+            patch_post_info["params"] = {}
+        patch_post_info["params"]["pca"] = pca_info
+
+        if patch_plan["npy"]:
+            patch_numpy = patch_tokens.numpy()
+        if emit_grid:
+            try:
+                if not pca_applied and grid_from_info is not None:
+                    patch_grid = (
+                        grid_from_info.detach().cpu()
+                        if isinstance(grid_from_info, torch.Tensor)
+                        else torch.as_tensor(grid_from_info)
+                    )
+                else:
                     patch_grid = patch2grid(patch_tokens)
-                except ValueError as err:
-                    print(f"\033[91m[WARN] Query patch grid reshape failed: {err}\033[0m")
+            except ValueError as err:
+                print(f"\033[91m[WARN] Query patch grid reshape failed: {err}\033[0m")
             if patch_grid is not None:
                 grid_array = (
                     patch_grid.detach().cpu().numpy()
@@ -383,6 +466,12 @@ def process_query_image(
         patch_dir.mkdir(parents=True, exist_ok=True)
         progress_bar(np.save, patch_path, patch_numpy)
         print(f"\t\033[32m[saved] Query image Patch embedding DINOv3 numpy array -> {patch_path}\033[0m")
+        if patch_post_info is not None and "scores" in patch_post_info:
+            scores = np.asarray(patch_post_info["scores"])
+            score_path = patch_dir / f"{patch_base}_scores.npy"
+            progress_bar(np.save, score_path, scores)
+            print(f"\t\033[32m[saved] Query Patch token score numpy array -> {score_path}\033[0m")
+
     elif patch_plan["npy"] and patch_numpy is None:
         print("\033[91m[WARN] Patch npy requested but tokens unavailable.\033[0m")
 
@@ -393,6 +482,22 @@ def process_query_image(
             np.save(grid_path, grid_array)
             print(f"\t\033[32m[saved] Query image Patch Grid DINOv3 numpy array -> {grid_path}\033[0m")
             grid_saved = True
+            
+            if (
+                patch_post_info is not None
+                and "scores" in patch_post_info
+                and patch_grid is not None
+            ):
+                scores = np.asarray(patch_post_info["scores"])
+                H, W = patch_grid.shape[0], patch_grid.shape[1]
+                if scores.size == H * W:
+                    score_grid = scores.reshape(H, W)
+                    score_grid_path = grid_dir / f"{grid_base}_scores.npy"
+                    np.save(score_grid_path, score_grid)
+                    print(f"\t\033[32m[saved] Query Patch grid score numpy array -> {score_grid_path}\033[0m")
+                else:
+                    print("\033[91m[WARN] Query score size does not match grid; skip score grid.\033[0m")
+
         else:
             print("\033[91m[WARN] Patch grid npy requested but grid unavailable.\033[0m")
 
@@ -440,18 +545,29 @@ def process_query_image(
         "index": None,
     }
 
-    used_variant_params = {}
+    default_variant_params = {
+        "patch_variant": variant_key,
+        "patch_params": dict(resolved_variant_params),
+        "pca_dim": resolved_pca_dim,
+        "pca": pca_info,
+        "topk": {
+            "enabled": apply_topk,
+            "k": effective_topk,
+            "ratio": float(topk_ratio) if topk_ratio is not None else None,
+        },
+    }
+
+    used_variant_params = dict(default_variant_params)
     if patch_post_info and "params" in patch_post_info:
         params = patch_post_info["params"]
         if isinstance(params, dict):
-            used_variant_params = dict(params)
-    if not used_variant_params:
-        used_variant_params = dict(resolved_variant_params)
+            used_variant_params.update(params)
 
     query_config = {
         "embedding_cfg": resolved_embedding_cfg,
         "variant": variant_key,
-        "variant_label": variant_label,
+        "experiment_variant": resolved_variant_label,
+        "variant_label": resolved_variant_label,
         "variant_params": used_variant_params,
         "weight_id": hub_entry,
         "dataset_type": dataset_type,
@@ -507,7 +623,7 @@ def process_query_image(
                 "token_count": int(patch_tokens.shape[0]),
                 "embedding_dim": int(patch_tokens.shape[1]) if patch_tokens.ndim == 2 else None,
                 "matching_count": patch_post_info.get("kept_tokens") if patch_post_info else int(patch_tokens.shape[0]),
-                "mutual_knn_tokens": patch_post_info.get("kept_tokens") if patch_post_info and variant == "mutual" else None,
+                "mutual_knn_tokens": None,
                 "keep_ratio": patch_post_info.get("keep_ratio") if patch_post_info else 1.0,
                 "recall@1": None,
                 "recall@5": None,
