@@ -141,7 +141,7 @@ def _parse_query_filename(path: Path) -> QueryInfo:
             except ValueError:
                 rotation = 0
             break
-    identifier = f"{scene}_{altitude}_{index:04d}_{tag}"
+    identifier = f"{altitude}_{index:04d}_{tag}"
     return QueryInfo(
         scene=scene,
         altitude=altitude,
