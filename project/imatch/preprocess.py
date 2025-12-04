@@ -38,7 +38,7 @@ def build_transform(
     ]
 
     if normalize == "LVD":
-        print("[imageprocessing] Normalization: web dataset (LVD-1689M)\n")
+        print("\033[34m[imageprocessing] Normalization: web dataset (LVD-1689M)\033[0m")
         transforms_steps.append(
             transforms.Normalize(
                 mean = [0.485, 0.456, 0.406],
@@ -46,7 +46,7 @@ def build_transform(
             )
         )
     else:
-        print("[imageprocessing] Normalization: satellite dataset (SAT-493M)\n")
+        print("\033[34m[imageprocessing] Normalization: satellite dataset (SAT-493M)\033[0m")
         transforms_steps.append(
             transforms.Normalize(
                 mean = [0.430, 0.411, 0.296],

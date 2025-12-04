@@ -4,25 +4,25 @@
   "experiment": {
     "variant": {
       "raw": false,
-      "sub": { "use": true, "stride": [1, 2, 4, 8] },
+      "sub": { "use": true, "stride": [4] },
       "pca": { "use": false, "dim": [3, 16, 64] }
     },
     "pca_basis": "",
     "topk": {
-      "use": true,
+      "use": false,
       "ratio": [0.01, 0.05, 0.1],
-      "k": null
+      "k": null 
     }
   },
   "models": [
     {
-      "weights": ["vith16+"],
+      "weights": ["vitl16"],
       "target_res": 1024,
       "embedding_cfg": null,
       "image_groups": [
         {
-          "altitudes": [150],
-          "indices": [1, 30]
+          "altitudes": [100],
+          "indices": [6, 30]
         }
       ],
       "outputs": {
@@ -37,3 +37,4 @@
     }
   ]
 }
+

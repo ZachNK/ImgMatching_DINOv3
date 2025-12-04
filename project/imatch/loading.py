@@ -22,6 +22,7 @@ VIS_ROOT = Path(os.getenv("VIS_ROOT", "/exports/dinov3_vis"))
 QUERY_ROOT = Path(os.getenv("QUERY_ROOT", "/opt/queries"))
 QUERY_PREFIX = os.getenv("QUERY_PREFIX", "Q")
 QUERY_DATASET_PREFIX = os.getenv("QUERY_DATASET_PREFIX", "Q")
+QUERY_EMBED_ROOT = Path(os.getenv("QUERY_EMBED_ROOT", "/exports/dinov3_query_embeds"))
 
 DATASET_ROOT = IMG_ROOT
 EXPORT_ROOT = Path("/exports")
@@ -37,6 +38,38 @@ WEIGHT_SETS: Dict[str, Dict[str, Any]] = registry.get("weights", {})
 
 def _first_key(data: Dict[str, Any]) -> str:
     return next(iter(data)) if data else ""
+
+
+def _dataset_token(dataset_key: str | None) -> str:
+    key = dataset_key or DATASET_KEY
+    key_text = str(key).strip()
+    if not key_text:
+        raise ValueError("[loading] dataset_key is required to build dataset-aware export roots.")
+    return _sanitize_token(key_text)
+
+
+def dataset_embed_root(dataset_key: str | None = None, root: Path | None = None) -> Path:
+    """
+    Resolve the embedding export root for a dataset, adding a dataset subfolder
+    under EMBED_ROOT unless the root is already dataset-specific.
+    """
+    base_root = Path(root) if root is not None else EMBED_ROOT
+    token = _dataset_token(dataset_key)
+    if _sanitize_token(base_root.name) == token:
+        return base_root
+    return base_root / token
+
+
+def dataset_query_embed_root(dataset_key: str | None = None, root: Path | None = None) -> Path:
+    """
+    Resolve the query embedding export root for a dataset, adding a dataset
+    subfolder under QUERY_EMBED_ROOT unless the root already ends with it.
+    """
+    base_root = Path(root) if root is not None else QUERY_EMBED_ROOT
+    token = _dataset_token(dataset_key)
+    if _sanitize_token(base_root.name) == token:
+        return base_root
+    return base_root / token
 
 
 def _normalize_label(value: Any) -> str:

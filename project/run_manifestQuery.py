@@ -45,7 +45,13 @@ from Test_Embedding4Query import (
     _parse_query_filename,
 )
 from Generate_DenseFT4Query import generate_query_dense_feature
-from imatch.loading import weights_path, set_dataset_key, normalize_group_value, sanitize_group_token
+from imatch.loading import (
+    weights_path,
+    set_dataset_key,
+    normalize_group_value,
+    sanitize_group_token,
+    dataset_query_embed_root,
+)
 from imatch.pretrained import pretrained_model
 from imatch.utils import progress_bar, create_progress
 from variants import build_runtime_variant
@@ -360,7 +366,8 @@ def execute_manifest(manifest_path: Path, reload_each: bool = False) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     dataset_key, altitude_map, query_root, query_prefix, dataset_prefix = _resolve_dataset_context(manifest)
     set_dataset_key(dataset_key)
-    query_embed_root = Path(manifest.get("query_embed_root") or DEFAULT_QUERY_EMBED_ROOT)
+    base_query_root = Path(manifest.get("query_embed_root") or DEFAULT_QUERY_EMBED_ROOT)
+    query_embed_root = dataset_query_embed_root(dataset_key, base_query_root)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     experiment = manifest.get("experiment", {}) if isinstance(manifest, dict) else {}
@@ -424,7 +431,7 @@ def execute_manifest(manifest_path: Path, reload_each: bool = False) -> None:
     planned_total = 0
     try:
         with create_progress() as query_progress:
-            progress_task = query_progress.add_task("[cyan]Query 진행중[/cyan]", total=0)
+            progress_task = query_progress.add_task("[cyan]Query Embedding...[/cyan]", total=0)
 
             for runtime_variant in runtime_variants:
                 for model_entry in manifest.get("models", []):
@@ -523,6 +530,7 @@ def execute_manifest(manifest_path: Path, reload_each: bool = False) -> None:
                                                     topk_ratio=runtime_variant.topk_ratio,
                                                     pca_dim=runtime_variant.pca_dim,
                                                     pca_basis_path=pca_basis_path,
+                                                    dataset_key=dataset_key,
                                                 )
                                                 processed += 1
                                                 if denseft_active and result.grid_path is not None:
@@ -565,6 +573,7 @@ def execute_manifest(manifest_path: Path, reload_each: bool = False) -> None:
                 print(
                     f"  - weight={weight_key} session_loads={data.get('session_loads', 0)} "
                     f"reuses={data.get('reuses', 0)} direct_loads={data.get('direct_loads', 0)}"
+                    "\n\n"
                 )
 
 

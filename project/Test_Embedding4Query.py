@@ -28,6 +28,8 @@ from imatch.loading import (
     QUERY_PREFIX,
     QUERY_DATASET_PREFIX,
     DATASET_KEY as DEFAULT_DATASET_KEY,
+    QUERY_EMBED_ROOT as BASE_QUERY_EMBED_ROOT,
+    dataset_query_embed_root,
 )
 from imatch.postprocess import format_variant_label, process_patch_tokens
 from imatch.pca_utils import load_pca_basis, apply_pca
@@ -38,6 +40,8 @@ from imatch.utils import progress_bar, token_preview
 
 ACTIVE_DATASET_KEY = os.getenv("DATASET_KEY", DEFAULT_DATASET_KEY)
 
+# dataset relocation
+reloc_prefix = "_"
 
 def _default_query_dirs() -> Sequence[Path]:
     base_dir = QUERY_ROOT / f"{QUERY_DATASET_PREFIX}{ACTIVE_DATASET_KEY}"
@@ -54,7 +58,7 @@ VAR_TARGET_RES = 1024
 VARIANT = "raw"
 VARIANT_PARAMS: Dict[str, object] = {}
 
-QUERY_EMBED_ROOT = Path(os.getenv("QUERY_EMBED_ROOT", "/exports/dinov3_query_embeds"))
+QUERY_EMBED_ROOT = dataset_query_embed_root(ACTIVE_DATASET_KEY, BASE_QUERY_EMBED_ROOT)
 REPO_DIR = Path("/workspace/dinov3")
 
 SUPPORTED_SUFFIXES = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
@@ -111,15 +115,17 @@ def _build_output_dirs(
     altitude: int,
     rotation: int,
     root: Path = QUERY_EMBED_ROOT,
+    dataset_key: Optional[str] = None,
 ) -> Dict[str, Path]:
     rotation_dir = f"{int(rotation):03d}"
-    altitude_dir = root / weight_key / f"{int(altitude)}" / rotation_dir
+    dataset_root = dataset_query_embed_root(dataset_key, root)
+    altitude_dir = dataset_root / f"{reloc_prefix}{weight_key}" / f"{reloc_prefix}{int(altitude)}" / f"{reloc_prefix}{rotation_dir}"
     return {
         "altitude": altitude_dir,
-        "global": altitude_dir / "GlobalToken",
-        "patch": altitude_dir / "PatchToken",
-        "grid": altitude_dir / "PatchGrid",
-        "denseft": altitude_dir / "DenseFT",
+        "global": altitude_dir / f"{reloc_prefix}GlobalToken",
+        "patch": altitude_dir / f"{reloc_prefix}PatchToken",
+        "grid": altitude_dir / f"{reloc_prefix}PatchGrid",
+        "denseft": altitude_dir / f"{reloc_prefix}DenseFT",
     }
 
 
@@ -233,6 +239,7 @@ def process_query_image(
     topk_ratio: Optional[float] = None,
     pca_dim: Optional[int] = None,
     pca_basis_path: Optional[str] = None,
+    dataset_key: Optional[str] = None,
 ) -> QueryEmbeddingResult:
     resolved_embedding_cfg = embedding_cfg or f"res{target_res}"
     plan = _normalize_output_plan(output_plan)
@@ -255,7 +262,14 @@ def process_query_image(
     resolved_pca_dim = pca_dim
     resolved_pca_basis = pca_basis_path or os.getenv("PCA_BASIS_PATH")
 
-    dirs = _build_output_dirs(weight_key, info.altitude, info.rotation, query_embed_root)
+    resolved_dataset_key = dataset_key or ACTIVE_DATASET_KEY
+    dirs = _build_output_dirs(
+        weight_key,
+        info.altitude,
+        info.rotation,
+        query_embed_root,
+        resolved_dataset_key,
+    )
     altitude_dir = dirs["altitude"]
     global_dir = dirs["global"]
     patch_dir = dirs["patch"]
@@ -275,24 +289,24 @@ def process_query_image(
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
 
-    print(
-        "\n",
-        "================= Debug: Embedding (Query) =================\n",
-        "INPUT: \n",
-        f"\t[Query] REPO_DIR: \033[33m{REPO_DIR}\033[0m\n", # e.g. /workspace/dinov3
-        f"\t[Query] IMAGE_PATH: \033[33m{info.source}\033[0m\n",
-        f"\t[Query] HUB_ENTRY: \033[33m{hub_entry}\033[0m\n", # e.g. dinov3_vits16
-        f"\t[Query] weight_path: \033[33m{weight_key}\033[0m\n", # e.g. /opt/weights/03_ViT_SAT-493M/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth
-        f"\t[Query] device: \033[33m{device}\033[0m\n", # e.g. "cuda"
-        "OUTPUT: \n",
-        f"\t[config] embedding_cfg: \033[33m{resolved_embedding_cfg}\033[0m\n",
-        f"\t[config] variant: \033[33m{variant_key}\033[0m (label=\033[33m{resolved_variant_label}\033[0m)\n",
-        f"\t[config] altitude/index: \033[33m{info.altitude}/{info.rotation}\033[0m\n",
-        f"\tQuery Global embedding DINOv3 numpy array -> \033[34m{npy_path}\033[0m\n",
-        f"\tQuery Patch token numpy array             -> \033[34m{patch_path}\033[0m\n",
-        f"\tQuery Patch grid numpy array              -> \033[34m{grid_path}\033[0m\n",
-        "================= Debug: Embedding (Query) =================\n",
-        )
+    # print(
+    #     "\n",
+    #     "================= Debug: Embedding (Query) =================\n",
+    #     "INPUT: \n",
+    #     f"[Query] REPO_DIR: \033[33m{REPO_DIR}\033[0m\n", # e.g. /workspace/dinov3
+    #     f"[Query] IMAGE_PATH: \033[33m{info.source}\033[0m\n",
+    #     f"[Query] HUB_ENTRY: \033[33m{hub_entry}\033[0m\n", # e.g. dinov3_vits16
+    #     f"[Query] weight_path: \033[33m{weight_key}\033[0m\n", # e.g. /opt/weights/03_ViT_SAT-493M/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth
+    #     f"[Query] device: \033[33m{device}\033[0m\n", # e.g. "cuda"
+    #     "OUTPUT: \n",
+    #     f"[config] embedding_cfg: \033[33m{resolved_embedding_cfg}\033[0m\n",
+    #     f"[config] variant: \033[33m{variant_key}\033[0m (label=\033[33m{resolved_variant_label}\033[0m)\n",
+    #     f"[config] altitude/index: \033[33m{info.altitude}/{info.rotation}\033[0m\n",
+    #     f"Query Global embedding DINOv3 numpy array -> \033[34m{npy_path}\033[0m\n",
+    #     f"Query Patch token numpy array             -> \033[34m{patch_path}\033[0m\n",
+    #     f"Query Patch grid numpy array              -> \033[34m{grid_path}\033[0m\n",
+    #     "================= Debug: Embedding (Query) =================\n",
+    #     )
 
     img_tensor = progress_bar(load_image, info.source.as_posix())
 
@@ -457,7 +471,7 @@ def process_query_image(
     if global_plan["npy"] and global_arr is not None:
         global_dir.mkdir(parents=True, exist_ok=True)
         progress_bar(np.save, npy_path, global_arr)
-        print(f"\t\033[32m[saved] Query image Global embedding DINOv3 numpy array -> {npy_path}\033[0m")
+        print(f"\033[32m[saved] Query image Global embedding DINOv3 numpy array -> {npy_path}\033[0m")
         global_saved = True
     elif global_plan["npy"]:
         print("\033[91m[WARN] Global npy requested but tokens unavailable.\033[0m")
@@ -465,12 +479,12 @@ def process_query_image(
     if patch_plan["npy"] and patch_numpy is not None:
         patch_dir.mkdir(parents=True, exist_ok=True)
         progress_bar(np.save, patch_path, patch_numpy)
-        print(f"\t\033[32m[saved] Query image Patch embedding DINOv3 numpy array -> {patch_path}\033[0m")
+        print(f"\033[32m[saved] Query image Patch embedding DINOv3 numpy array -> {patch_path}\033[0m")
         if patch_post_info is not None and "scores" in patch_post_info:
             scores = np.asarray(patch_post_info["scores"])
             score_path = patch_dir / f"{patch_base}_scores.npy"
             progress_bar(np.save, score_path, scores)
-            print(f"\t\033[32m[saved] Query Patch token score numpy array -> {score_path}\033[0m")
+            print(f"\033[32m[saved] Query Patch token score numpy array -> {score_path}\033[0m")
 
     elif patch_plan["npy"] and patch_numpy is None:
         print("\033[91m[WARN] Patch npy requested but tokens unavailable.\033[0m")
@@ -480,7 +494,7 @@ def process_query_image(
         if grid_array is not None:
             grid_dir.mkdir(parents=True, exist_ok=True)
             np.save(grid_path, grid_array)
-            print(f"\t\033[32m[saved] Query image Patch Grid DINOv3 numpy array -> {grid_path}\033[0m")
+            print(f"\033[32m[saved] Query image Patch Grid DINOv3 numpy array -> {grid_path}\033[0m")
             grid_saved = True
             
             if (
@@ -494,7 +508,7 @@ def process_query_image(
                     score_grid = scores.reshape(H, W)
                     score_grid_path = grid_dir / f"{grid_base}_scores.npy"
                     np.save(score_grid_path, score_grid)
-                    print(f"\t\033[32m[saved] Query Patch grid score numpy array -> {score_grid_path}\033[0m")
+                    print(f"\033[32m[saved] Query Patch grid score numpy array -> {score_grid_path}\033[0m")
                 else:
                     print("\033[91m[WARN] Query score size does not match grid; skip score grid.\033[0m")
 
@@ -746,10 +760,9 @@ def main() -> None:
                 variant=VARIANT,
                 variant_params=VARIANT_PARAMS,
                 output_plan=default_plan,
+                dataset_key=ACTIVE_DATASET_KEY,
             )
             total += 1
-
-    print(f"\033[32m[DONE] Processed {total} query images.\033[0m")
 
 
 if __name__ == "__main__":

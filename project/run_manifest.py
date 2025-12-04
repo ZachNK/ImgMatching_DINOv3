@@ -280,7 +280,7 @@ def execute_manifest(manifest_path: Path, reload_each: bool = False) -> None:
     session_cache: Dict[str, EmbeddingSession] = {}
     try:
         with create_progress() as manifest_progress:
-            manifest_task = manifest_progress.add_task("[cyan]Manifest [/cyan]", total=0)
+            manifest_task = manifest_progress.add_task("[cyan]Embedding... [/cyan]", total=0)
 
             for runtime_variant in runtime_variants:
                 for model_entry in manifest.get("models", []):
@@ -359,6 +359,7 @@ def execute_manifest(manifest_path: Path, reload_each: bool = False) -> None:
                                             variant_params=dict(runtime_variant.patch_params),
                                             variant_label=runtime_variant.label,
                                             pca_basis_path=pca_basis_path,
+                                            dataset_key=dataset_key,
                                         )
                                     elif generate_denseft:
                                         print("    [WARN] Generate_DenseFT module unavailable.")
@@ -375,6 +376,7 @@ def execute_manifest(manifest_path: Path, reload_each: bool = False) -> None:
                     f"  - weight={weight_key} runs={data.get('runs', 0)} "
                     f"session_loads={data.get('session_loads', 0)} "
                     f"reuses={data.get('reuses', 0)} direct_loads={data.get('direct_loads', 0)}"
+                    "\n\n"
                 )
 
 

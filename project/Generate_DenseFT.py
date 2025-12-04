@@ -13,11 +13,15 @@ from PIL import Image
 from imatch.postprocess import format_variant_label
 from imatch.loading import (
     EMBED_ROOT,
+    dataset_embed_root,
     weights_path,
     file_prefix,
     sanitize_group_token,
     normalize_group_value,
 )
+
+# dataset relocation
+reloc_prefix = "_"
 
 varAltitude = 450
 varIndex = 1
@@ -32,6 +36,7 @@ def _build_context(
     embedding_cfg: str,
     variant_params: dict[str, object] | None = None,
     variant_label: str | None = None,
+    dataset_key: str | None = None,
 ) -> dict[str, Path | str]:
     """Prepare the shared paths used throughout the dense feature pipeline."""
     hub_entry, _, dataset_type = weights_path(weight) # e.g. dinov3_vitl16
@@ -45,9 +50,9 @@ def _build_context(
     grid_name = f"PatchGrid_{embedding_cfg}_{resolved_variant_label}_{hub_entry}_{dataset_type}_{label_token}_{index_str}"
     dense_name = f"DenseFT_{embedding_cfg}_{resolved_variant_label}_{hub_entry}_{dataset_type}_{label_token}_{index_str}"
 
-    altitude_dir = EMBED_ROOT / weight / label_token
-    grid_dir = altitude_dir / "PatchGrid"
-    dense_dir = altitude_dir / "DenseFT"
+    altitude_dir = dataset_embed_root(dataset_key) / f"{reloc_prefix}{weight}" / f"{reloc_prefix}{label_token}"
+    grid_dir = altitude_dir / f"{reloc_prefix}PatchGrid"
+    dense_dir = altitude_dir / f"{reloc_prefix}DenseFT"
 
     return {
         "hub_entry": hub_entry,
@@ -69,6 +74,7 @@ def generate_dense_feature(
     variant_params: dict[str, object] | None = None,
     variant_label: str | None = None,
     pca_basis_path: str | None = None,
+    dataset_key: str | None = None,
 ) -> None:
     """
     Load the patch grid exported by Test_global_embedding and save a PNG.
@@ -76,7 +82,16 @@ def generate_dense_feature(
     variant_params are parsed to mirror the filenames produced during embedding.
     """
     resolved_embedding_cfg = embedding_cfg or f"res{int(target_res)}"
-    ctx = _build_context(altitude, index, weight, variant, resolved_embedding_cfg, variant_params, variant_label)
+    ctx = _build_context(
+        altitude,
+        index,
+        weight,
+        variant,
+        resolved_embedding_cfg,
+        variant_params,
+        variant_label,
+        dataset_key,
+    )
     grid_path = ctx["grid_path"]
     dense_path = ctx["dense_path"]
     dense_dir = ctx["dense_dir"]
@@ -87,15 +102,6 @@ def generate_dense_feature(
         )
 
     Path(dense_dir).mkdir(parents=True, exist_ok=True)
-
-
-    print(
-        "\n",
-        "================= Debug: Extracting Dense Feature (Datasets) =================\n",
-        f"\t[info] INPUT: \033[33m{grid_path}\033[0m\n",
-        f"\t[info] OUTPUT: \033[33m{dense_dir}\033[0m\n",
-        "================= Debug: Extracting Dense Feature (Datasets) =================\n",
-    )
 
     grid = torch.from_numpy(np.load(grid_path))  # (H, W, C)
     if grid.ndim != 3:
@@ -146,7 +152,6 @@ def main() -> None:
         index=varIndex,
         weight=varWeight,
     )
-    print(f"\033[32m[DONE] Generated dense feature image.\033[0m")
 
 
 if __name__ == "__main__":

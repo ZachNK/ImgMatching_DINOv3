@@ -13,26 +13,36 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
+from imatch.loading import (
+    DATASET_KEY as DEFAULT_DATASET_KEY,
+    QUERY_EMBED_ROOT as BASE_QUERY_EMBED_ROOT,
+    dataset_query_embed_root,
+)
 
 VAR_WEIGHT_KEY = "vitb16"
-QUERY_EMBED_ROOT = Path(os.getenv("QUERY_EMBED_ROOT", "/exports/dinov3_query_embeds"))
+ACTIVE_DATASET_KEY = os.getenv("DATASET_KEY", DEFAULT_DATASET_KEY)
+QUERY_EMBED_ROOT = dataset_query_embed_root(ACTIVE_DATASET_KEY, BASE_QUERY_EMBED_ROOT)
 ALTITUDE_FILTER: Sequence[int] = ()
 
 GRID_PATTERN = "QueryPatchGrid_*.npy"
 
+# dataset relocation
+reloc_prefix = "_"
 
 def iter_grid_files(
     weight_key: str,
     root: Path = QUERY_EMBED_ROOT,
     altitudes: Sequence[int] | None = None,
+    dataset_key: str | None = None,
 ) -> Iterable[Path]:
-    weight_root = root / weight_key
+    dataset_root = dataset_query_embed_root(dataset_key or ACTIVE_DATASET_KEY, root)
+    weight_root = dataset_root / f"{reloc_prefix}{weight_key}"
     if not weight_root.exists():
         print(f"\033[91m[WARN] Query embed root missing for weight={weight_key}: {weight_root}\033[0m")
         return
 
     if altitudes:
-        altitude_dirs = [weight_root / f"{int(alt)}" for alt in altitudes]
+        altitude_dirs = [weight_root / f"{reloc_prefix}{int(alt)}" for alt in altitudes]
     else:
         altitude_dirs = [p for p in weight_root.iterdir() if p.is_dir()]
 
@@ -42,7 +52,7 @@ def iter_grid_files(
             continue
         rotation_dirs = [p for p in altitude_dir.iterdir() if p.is_dir()]
         for rotation_dir in rotation_dirs:
-            patch_dir = rotation_dir / "PatchGrid"
+            patch_dir = rotation_dir / f"{reloc_prefix}PatchGrid"
             if not patch_dir.exists():
                 print(f"\033[93m[WARN] PatchGrid directory missing, skipping: {patch_dir}\033[0m")
                 continue
@@ -51,7 +61,7 @@ def iter_grid_files(
 
 
 def derive_dense_output_path(grid_path: Path) -> Path:
-    dense_dir = grid_path.parent.parent / "DenseFT"
+    dense_dir = grid_path.parent.parent / f"{reloc_prefix}DenseFT"
     dense_name = grid_path.stem.replace("PatchGrid", "DenseFT")
     return dense_dir / f"{dense_name}.png"
 
@@ -73,7 +83,7 @@ def save_dense_feature(grid_path: Path, output_path: Path) -> Path:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray((rgb_up * 255).astype("uint8")).save(output_path)
-    print(f"\t\033[32m[saved] DenseFT -> {output_path}\033[0m")
+    print(f"\033[32m[saved] DenseFT -> {output_path}\033[0m")
     return output_path
 
 
@@ -82,13 +92,13 @@ def generate_query_dense_feature(
     output_path: Path | None = None,
 ) -> Path:
     target_path = output_path or derive_dense_output_path(grid_path)
-    print(
-        "\n",
-        "================= Debug: Extracting Dense Feature (Query) =================\n",
-        f"\t[info] INPUT: \033[33m{grid_path}\033[0m\n",
-        f"\t[info] OUTPUT: \033[33m{target_path}\033[0m\n",
-        "================= Debug: Extracting Dense Feature (Query) =================\n",
-    )
+    # print(
+    #     "\n",
+    #     "================= Debug: Extracting Dense Feature (Query) =================\n",
+    #     f"\t[info] INPUT: \033[33m{grid_path}\033[0m\n",
+    #     f"\t[info] OUTPUT: \033[33m{target_path}\033[0m\n",
+    #     "================= Debug: Extracting Dense Feature (Query) =================\n",
+    # )
     return save_dense_feature(grid_path, target_path)
 
 
