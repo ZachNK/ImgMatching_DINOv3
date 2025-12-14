@@ -3,8 +3,8 @@
   "weight_set": "dinov3_weights",
   "experiment": {
     "variant": {
-      "raw": false,
-      "sub": { "use": true, "stride": [4] },
+      "raw": true,
+      "sub": { "use": false, "stride": [2, 4, 8] },
       "pca": { "use": false, "dim": [3, 16, 64] }
     },
     "pca_basis": "",
@@ -16,13 +16,13 @@
   },
   "models": [
     {
-      "weights": ["vitl16"],
+      "weights": ["vitl16sat"],
       "target_res": 1024,
       "embedding_cfg": null,
       "image_groups": [
         {
-          "altitudes": [100],
-          "indices": [6, 30]
+          "altitudes": [100, 150, 200, 300, 400],
+          "indices": [1, 289]
         }
       ],
       "outputs": {

@@ -1,5 +1,5 @@
 # ================== Configuration ==================
-param([string]$Code)
+param([string]$Code, [switch]$List)
 # Base directory (exports root \ embed type root \ datasets root \ weights root)
 $base = "D:\dinov3_exports\dinov3_query_embeds\shinsung_data"  
 
@@ -34,6 +34,30 @@ $WGT = @(
 $ALT = @("100", "150", "200", "300", "400")
 $ROT = @("045", "090", "135", "180")
 $TYP = @("DenseFT", "GlobalToken", "PatchGrid", "PatchToken")
+
+if ($List) {
+    Write-Host "===== WGT (1-based index) ====="
+    for ($i = 0; $i -lt $WGT.Count; $i++) {
+        Write-Host ("{0}: {1}" -f ($i+1), $WGT[$i])
+    }
+
+    Write-Host "`n===== ALT (1-based index) ====="
+    for ($i = 0; $i -lt $ALT.Count; $i++) {
+        Write-Host ("{0}: {1}" -f ($i+1), $ALT[$i])
+    }
+
+    Write-Host "`n===== ROT (1-based index) ====="
+    for ($i = 0; $i -lt $ROT.Count; $i++) {
+        Write-Host ("{0}: {1}" -f ($i+1), $ROT[$i])
+    }
+
+    Write-Host "`n===== TYP (1-based index) ====="
+    for ($i = 0; $i -lt $TYP.Count; $i++) {
+        Write-Host ("{0}: {1}" -f ($i+1), $TYP[$i])
+    }
+
+    return   # 리스트만 보여주고 나머지 이동 로직은 실행 안 함
+}
 
 # ===================== define paths ==================
 $wgt = $WGT[$wgtIndex-1]    # wgtIndex = 2 -> "vitb16"

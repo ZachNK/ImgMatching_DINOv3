@@ -27,7 +27,7 @@ ALTITUDE_FILTER: Sequence[int] = ()
 GRID_PATTERN = "QueryPatchGrid_*.npy"
 
 # dataset relocation
-reloc_prefix = "_"
+reloc_prefix = ""
 
 def iter_grid_files(
     weight_key: str,

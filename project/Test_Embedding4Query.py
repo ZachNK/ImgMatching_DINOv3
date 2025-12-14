@@ -41,7 +41,7 @@ from imatch.utils import progress_bar, token_preview
 ACTIVE_DATASET_KEY = os.getenv("DATASET_KEY", DEFAULT_DATASET_KEY)
 
 # dataset relocation
-reloc_prefix = "_"
+reloc_prefix = ""
 
 def _default_query_dirs() -> Sequence[Path]:
     base_dir = QUERY_ROOT / f"{QUERY_DATASET_PREFIX}{ACTIVE_DATASET_KEY}"

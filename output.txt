@@ -1,0 +1,632 @@
+2025-12-11 21:09:48
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 100 180 DenseFT   867
+2025-12-11 21:14:17
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 150 045 DenseFT   867
+2025-12-11 21:15:31
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 100 180 GlobalToken  1734
+2025-12-11 21:31:15
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 100 180 PatchGrid  2601
+2025-12-11 21:41:41
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 100 180 PatchToken  2601
+2025-12-11 21:59:17
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 150 045 GlobalToken  1734
+
+2025-12-11 22:14:33
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 150 045 PatchGrid  2601
+
+2025-12-12 09:49:41
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 150 045 PatchToken  2601
+
+2025-12-12 09:54:41
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 150 090 DenseFT   867
+
+2025-12-12 09:56:09
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 150 090 GlobalToken  1734
+
+2025-12-12 10:06:17
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 150 090 PatchGrid  2601
+
+2025-12-12 10:16:48
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 150 090 PatchToken  2601
+
+2025-12-12 10:21:52
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 150 135 DenseFT   867
+
+2025-12-12 10:23:19
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 150 135 GlobalToken  1734
+
+2025-12-12 10:28:49
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 150 135 PatchGrid  2601
+
+2025-12-12 10:35:33
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 150 135 PatchToken  2601
+
+2025-12-12 10:41:18
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 150 180 DenseFT   867
+
+2025-12-12 10:42:49
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 150 180 GlobalToken  1734
+
+2025-12-12 10:48:21
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 150 180 PatchGrid  2601
+
+2025-12-12 10:54:55
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 150 180 PatchToken  2601
+
+2025-12-12 10:57:24
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 200 045 DenseFT   867
+
+2025-12-12 10:58:32
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 200 045 GlobalToken  1734
+
+2025-12-12 11:03:43
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 200 045 PatchGrid  2601
+
+2025-12-12 11:10:26
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 200 045 PatchToken  2601
+
+2025-12-12 11:14:43
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 200 090 DenseFT   867
+
+2025-12-12 11:16:22
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 200 090 GlobalToken  1734
+
+2025-12-12 11:21:38
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 200 090 PatchGrid  2601
+
+2025-12-12 11:34:08
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 200 090 PatchToken  2601
+
+2025-12-12 12:56:35
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 200 135 DenseFT   867
+
+2025-12-12 13:20:37
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 200 135 GlobalToken  1734
+
+2025-12-12 13:26:07
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 200 135 PatchGrid  2601
+
+2025-12-12 13:31:34
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 200 135 PatchToken  2601
+
+2025-12-12 13:32:43
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 200 180 DenseFT   867
+
+2025-12-12 13:36:26
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 200 180 GlobalToken  1734
+
+2025-12-12 13:57:57
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 200 180 PatchGrid  2601
+
+2025-12-12 14:05:51
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 200 180 PatchToken  2601
+
+2025-12-12 14:15:14
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 300 045 DenseFT   867
+
+2025-12-12 14:25:33
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 300 045 GlobalToken  1734
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\045\GlobalToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_045\_GlobalToken"
+
+2025-12-12 14:34:50
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 300 045 PatchGrid  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\045\PatchGrid" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_045\_PatchGrid"
+
+2025-12-12 15:21:17
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 300 045 PatchToken  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\045\PatchToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_045\_PatchToken"
+
+2025-12-12 15:34:47
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 300 090 DenseFT   867
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\090\DenseFT" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_090\_DenseFT"
+
+2025-12-12 15:35:59
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 300 090 GlobalToken  1734
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\090\GlobalToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_090\_GlobalToken"
+
+2025-12-12 15:41:15
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 300 090 PatchGrid  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\090\PatchGrid" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_090\_PatchGrid"
+
+2025-12-12 16:16:00
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 300 090 PatchToken  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\090\PatchToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_090\_PatchToken"
+
+2025-12-12 16:31:47
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 300 135 DenseFT   867
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\135\DenseFT" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_135\_DenseFT"
+
+2025-12-12 16:35:07
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 300 135 GlobalToken  1734
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\135\GlobalToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_135\_GlobalToken"
+
+2025-12-12 16:40:12
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 300 135 PatchGrid  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\135\PatchGrid" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_135\_PatchGrid"
+
+2025-12-12 16:45:46
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 300 135 PatchToken  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\135\PatchToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_135\_PatchToken"
+
+2025-12-12 16:47:15
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 300 180 DenseFT   867
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\180\DenseFT" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_180\_DenseFT"
+
+2025-12-12 16:48:22
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 300 180 GlobalToken  1734
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\180\GlobalToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_180\_GlobalToken"
+
+2025-12-12 16:53:42
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 300 180 PatchGrid  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\180\PatchGrid" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_180\_PatchGrid"
+
+2025-12-12 17:05:11
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 300 180 PatchToken  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\300\180\PatchToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_300\_180\_PatchToken"
+
+2025-12-12 17:08:07
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 400 045 DenseFT   867
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\045\DenseFT" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_045\_DenseFT"
+
+2025-12-12 17:10:12
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 400 045 GlobalToken  1734
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\045\GlobalToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_045\_GlobalToken"
+
+2025-12-12 17:15:19
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 400 045 PatchGrid  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\045\PatchGrid" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_045\_PatchGrid"
+
+2025-12-12 17:24:47
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 400 045 PatchToken  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\045\PatchToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_045\_PatchToken"
+
+2025-12-12 17:41:05
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 400 090 DenseFT   867
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\090\DenseFT" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_090\_DenseFT"
+
+2025-12-12 17:46:34
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 400 090 GlobalToken  1734
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\090\GlobalToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_090\_GlobalToken"
+
+2025-12-12 17:54:24
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 400 090 PatchGrid  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\090\PatchGrid" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_090\_PatchGrid"
+
+2025-12-12 18:14:06
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 400 090 PatchToken  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\090\PatchToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_090\_PatchToken"
+
+2025-12-12 18:48:35
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 400 135 DenseFT   867
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\135\DenseFT" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_135\_DenseFT"
+
+2025-12-12 18:50:51
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 400 135 GlobalToken  1734
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\135\GlobalToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_135\_GlobalToken"
+
+2025-12-12 18:56:17
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 400 135 PatchGrid  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\135\PatchGrid" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_135\_PatchGrid"
+
+2025-12-12 19:01:25
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 400 135 PatchToken  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\135\PatchToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_135\_PatchToken"
+
+2025-12-12 19:02:45
+
+Move summary:
+
+Weight Alt Rot Type    Moved
+------ --- --- ----    -----
+vitb16 400 180 DenseFT   867
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\180\DenseFT" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_180\_DenseFT"
+
+2025-12-12 19:03:50
+
+Move summary:
+
+Weight Alt Rot Type        Moved
+------ --- --- ----        -----
+vitb16 400 180 GlobalToken  1734
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\180\GlobalToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_180\_GlobalToken"
+
+2025-12-12 19:08:57
+
+Move summary:
+
+Weight Alt Rot Type      Moved
+------ --- --- ----      -----
+vitb16 400 180 PatchGrid  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\180\PatchGrid" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_180\_PatchGrid"
+
+2025-12-12 19:14:30
+
+Move summary:
+
+Weight Alt Rot Type       Moved
+------ --- --- ----       -----
+vitb16 400 180 PatchToken  2601
+
+Source -> Destination:
+"D:\dinov3_exports\dinov3_query_embeds\shinsung_data\vitb16\400\180\PatchToken" -> "H:\dinov3_exports\dinov3_query_embeds\shinsung_data\_vitb16\_400\_180\_PatchToken"
+

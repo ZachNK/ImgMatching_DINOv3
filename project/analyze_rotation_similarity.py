@@ -13,9 +13,72 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
+
+
+def _add_prefix_after_dataset(path: Path, dataset_key: str, prefix: str) -> Path:
+    if not prefix:
+        return path
+    parts = list(path.parts)
+    try:
+        idx = parts.index(dataset_key)
+    except ValueError:
+        return path
+    if idx + 1 >= len(parts):
+        return path
+    head = parts[: idx + 1]
+    tail = [p if p.startswith(prefix) else f"{prefix}{p}" for p in parts[idx + 1 :]]
+    return Path(*head, *tail)
+
+
+def _swap_root(path: Path, src_root: Path, dst_root: Path) -> Optional[Path]:
+    try:
+        rel = path.relative_to(src_root)
+    except ValueError:
+        return None
+    return dst_root / rel
+
+
+def resolve_dir(
+    path: Path,
+    dataset_key: str,
+    raw_root: Path,
+    variant_root: Path,
+    prefer_variant: bool = False,
+) -> Path:
+    """
+    Resolve directory paths when embeddings are split across D:/ (raw) and H:/ (subsampled/top-k with underscored dirs).
+    """
+    path = path.expanduser()
+    variant_hint = prefer_variant or any(
+        part.startswith("_") for part in path.parts
+    ) or "subsample" in path.name.lower()
+
+    candidates: List[Path] = []
+
+    def _add_candidate(p: Optional[Path]) -> None:
+        if p and p not in candidates:
+            candidates.append(p)
+
+    _add_candidate(path)
+
+    for src, dst in ((raw_root, variant_root), (variant_root, raw_root)):
+        swapped = _swap_root(path, src, dst)
+        _add_candidate(swapped)
+        if swapped and variant_hint:
+            _add_candidate(_add_prefix_after_dataset(swapped, dataset_key, "_"))
+
+    if variant_hint:
+        _add_candidate(_add_prefix_after_dataset(path, dataset_key, "_"))
+
+    for cand in candidates:
+        if cand.exists():
+            return cand
+
+    tried = "\n  ".join(str(c) for c in candidates)
+    raise FileNotFoundError(f"Directory not found. Tried:\n  {tried}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,6 +106,29 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="GlobalToken",
         help="Token type to analyze (default: GlobalToken).",
+    )
+    parser.add_argument(
+        "--dataset-key",
+        type=str,
+        default="shinsung_data",
+        help="Dataset folder name used when resolving underscored paths.",
+    )
+    parser.add_argument(
+        "--raw-root",
+        type=Path,
+        default=Path("D:/dinov3_exports"),
+        help="Base root for raw variants (default: D:/dinov3_exports).",
+    )
+    parser.add_argument(
+        "--variant-root",
+        type=Path,
+        default=Path("H:/dinov3_exports"),
+        help="Base root for subsampled/top-k variants (default: H:/dinov3_exports).",
+    )
+    parser.add_argument(
+        "--prefer-variant",
+        action="store_true",
+        help="Prefer variant_root + underscored directories when resolving missing paths.",
     )
     return parser.parse_args()
 
@@ -132,12 +218,25 @@ def analyze(reference_dir: Path, query_dir: Path, token_type: str) -> Dict[str, 
 
 def main() -> None:
     args = parse_args()
-    if not args.reference_dir.exists():
-        raise FileNotFoundError(f"Reference directory not found: {args.reference_dir}")
-    if not args.query_dir.exists():
-        raise FileNotFoundError(f"Query directory not found: {args.query_dir}")
+    reference_dir = resolve_dir(
+        args.reference_dir,
+        dataset_key=args.dataset_key,
+        raw_root=args.raw_root,
+        variant_root=args.variant_root,
+        prefer_variant=args.prefer_variant,
+    )
+    query_dir = resolve_dir(
+        args.query_dir,
+        dataset_key=args.dataset_key,
+        raw_root=args.raw_root,
+        variant_root=args.variant_root,
+        prefer_variant=args.prefer_variant,
+    )
 
-    summary = analyze(args.reference_dir, args.query_dir, args.token_type)
+    print(f"[INFO] Using reference dir: {reference_dir}")
+    print(f"[INFO] Using query dir    : {query_dir}")
+
+    summary = analyze(reference_dir, query_dir, args.token_type)
     if not summary:
         print("No similarities computed (check inputs).")
         return

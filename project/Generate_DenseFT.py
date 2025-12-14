@@ -21,7 +21,7 @@ from imatch.loading import (
 )
 
 # dataset relocation
-reloc_prefix = "_"
+reloc_prefix = ""
 
 varAltitude = 450
 varIndex = 1

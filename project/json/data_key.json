@@ -15,6 +15,14 @@
                 "250915084516": 100
             }
         },
+        "jamshil_data": {
+            "root": "jamshil_data",
+            "folder_template": "{capture_id}_{label}",
+            "filename_template": "{capture_id}_{label}_{frame}.jpg",
+            "images": {
+                "251030172146": "300"
+            }
+        },
         "another_data1": {
             "root": "another_data1",
             "folder_template": "{capture_id}/{label}",

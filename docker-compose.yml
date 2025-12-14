@@ -1,17 +1,14 @@
 services:
-  # DINOv3 기반 매칭 장비
-  matching:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
     image: ${IMAGE_NAME}
-    container_name: dinov3-matching
     gpus: all
     shm_size: "8g"
     working_dir: /workspace/project
     environment:
       TZ: ${TZ}
-      # 매칭 스크립트에서 사용하는 경로
       REPO_DIR: ${REPO_DIR}
       IMG_ROOT: ${IMG_ROOT}
       EMBED_ROOT: ${EMBED_ROOT}

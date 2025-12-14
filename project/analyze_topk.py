@@ -1,8 +1,86 @@
 import argparse
 import math
 from pathlib import Path
+from typing import List, Optional
 
 import numpy as np
+
+
+def _add_prefix_after_dataset(path: Path, dataset_key: str, prefix: str) -> Path:
+    """
+    Prefix directory components that come after the dataset key (weight/altitude/angle/token)
+    to match the underscored layout used for subsampled/top-k variants on H: drive.
+    """
+    if not prefix:
+        return path
+
+    parts = list(path.parts)
+    try:
+        idx = parts.index(dataset_key)
+    except ValueError:
+        return path
+
+    if idx + 1 >= len(parts):
+        return path
+
+    head = parts[: idx + 1]
+    tail = parts[idx + 1 : -1]
+    tail_prefixed = [p if p.startswith(prefix) else f"{prefix}{p}" for p in tail]
+    return Path(*head, *tail_prefixed, parts[-1])
+
+
+def _swap_root(path: Path, src_root: Path, dst_root: Path) -> Optional[Path]:
+    try:
+        rel = path.relative_to(src_root)
+    except ValueError:
+        return None
+    return dst_root / rel
+
+
+def resolve_path(
+    path: Path,
+    dataset_key: str,
+    raw_root: Path,
+    variant_root: Path,
+    prefer_variant: bool = False,
+) -> Path:
+    """
+    Resolve a file path across the mixed storage layout:
+      - raw variants live under D:\\dinov3_exports (no leading underscores)
+      - subsampled/top-k variants live under H:\\dinov3_exports with leading underscores
+
+    The resolver tries the user-provided path first, then swaps raw<->variant roots,
+    and optionally prefixes directories after the dataset key with "_" to match the
+    underscored folder names.
+    """
+    path = path.expanduser()
+    variant_hint = prefer_variant or any(
+        part.startswith("_") for part in path.parts
+    ) or "subsample" in path.name.lower()
+
+    candidates: List[Path] = []
+
+    def _add_candidate(p: Path | None) -> None:
+        if p and p not in candidates:
+            candidates.append(p)
+
+    _add_candidate(path)
+
+    for src, dst in ((raw_root, variant_root), (variant_root, raw_root)):
+        swapped = _swap_root(path, src, dst)
+        _add_candidate(swapped)
+        if swapped and variant_hint:
+            _add_candidate(_add_prefix_after_dataset(swapped, dataset_key, "_"))
+
+    if variant_hint:
+        _add_candidate(_add_prefix_after_dataset(path, dataset_key, "_"))
+
+    for cand in candidates:
+        if cand.exists():
+            return cand
+
+    tried = "\n  ".join(str(c) for c in candidates)
+    raise FileNotFoundError(f"File not found. Tried:\n  {tried}")
 
 
 def load_score_grid(path: Path) -> np.ndarray:
@@ -191,10 +269,48 @@ def main():
         default=3600,
         help="Top-K size to evaluate overlap.",
     )
+    parser.add_argument(
+        "--dataset-key",
+        type=str,
+        default="shinsung_data",
+        help="Dataset folder name (used when resolving underscored paths).",
+    )
+    parser.add_argument(
+        "--raw-root",
+        type=Path,
+        default=Path("D:/dinov3_exports"),
+        help="Base root for raw variants (default: D:/dinov3_exports).",
+    )
+    parser.add_argument(
+        "--variant-root",
+        type=Path,
+        default=Path("H:/dinov3_exports"),
+        help="Base root for subsampled/top-k variants (default: H:/dinov3_exports).",
+    )
+    parser.add_argument(
+        "--prefer-variant",
+        action="store_true",
+        help="Prefer the variant_root + underscored layout when the initial path is missing.",
+    )
     args = parser.parse_args()
 
-    orig_scores = load_score_grid(args.orig_score)
-    query_scores = load_score_grid(args.query_score)
+    orig_path = resolve_path(
+        args.orig_score,
+        dataset_key=args.dataset_key,
+        raw_root=args.raw_root,
+        variant_root=args.variant_root,
+        prefer_variant=args.prefer_variant,
+    )
+    query_path = resolve_path(
+        args.query_score,
+        dataset_key=args.dataset_key,
+        raw_root=args.raw_root,
+        variant_root=args.variant_root,
+        prefer_variant=args.prefer_variant,
+    )
+
+    orig_scores = load_score_grid(orig_path)
+    query_scores = load_score_grid(query_path)
 
     ratio, overlap_count, K_eff = topk_overlap_with_rotation(
         orig_scores,
@@ -205,8 +321,8 @@ def main():
     )
 
     print("=== Top-K overlap (rotation-aware) ===")
-    print(f"Original score grid : {args.orig_score}")
-    print(f"Query    score grid : {args.query_score}")
+    print(f"Original score grid : {orig_path}")
+    print(f"Query    score grid : {query_path}")
     print(f"Angle (deg)         : {args.angle}")
     print(f"Crop ratio          : {args.crop_ratio}")
     print(f"Requested K         : {args.topk}")

@@ -33,7 +33,7 @@ from imatch.postprocess import format_variant_label, process_patch_tokens
 from imatch.pca_utils import load_pca_basis, apply_pca
 
 # dataset relocation
-reloc_prefix = "_"
+reloc_prefix = ""
 
 # 
 varAltitude = 450

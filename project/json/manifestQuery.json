@@ -4,26 +4,26 @@
   "query_embed_root": "/exports/dinov3_query_embeds",
   "experiment": {
     "variant": {
-      "raw": false,
-      "sub": { "use": true, "stride": [8] },
+      "raw": true,
+      "sub": { "use": true, "stride": [2, 4, 8] },
       "pca": { "use": false, "dim": [3, 16, 64] }
     },
     "pca_basis": "",
     "topk": {
-      "use": true,
+      "use": false,
       "ratio": [0.01, 0.05, 0.1],
       "k": null
     }
   },
   "models": [
     {
-      "weights": ["vits16+"],
+      "weights": ["vitl16sat"],
       "target_res": 1024,
       "embedding_cfg": null,
       "image_groups": [
         {
-          "altitudes": [100],
-          "indices": [1, 10],
+          "altitudes": [100, 150, 200, 300, 400],
+          "indices": [3, 289],
           "rotation": [45, 90, 135, 180]
         }
       ],
